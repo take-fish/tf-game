@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: tf-game
+
+server:
+  port: 8104
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
