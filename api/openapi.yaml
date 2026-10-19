@@ -1,8 +1,11 @@
 openapi: 3.0.3
 info:
   title: tf-game API
-  version: 0.1.0
-  description: FishMatrix 游戏服务：对局匹配与积分排行接口契约（与实现同仓演进）
+  version: 0.2.0
+  description: |
+    FishMatrix 游戏服务：一期仅提供 QPS 流量打砖块演练积分榜（Redis ZSET）。
+    其余 4 款游戏为前端图表骨架，不落后端模型。
+
 paths:
   /api/v1/game/health:
     get:
@@ -10,3 +13,54 @@ paths:
       responses:
         "200":
           description: 服务正常
+
+  /api/v1/game/leaderboard:
+    get:
+      summary: 演练积分榜
+      parameters:
+        - in: query
+          name: gameId
+          schema: { type: string, default: qps-breakout, enum: [qps-breakout] }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+      responses:
+        "200":
+          description: '{ "gameId": string, "entries": LeaderboardEntry[] }'
+        "400":
+          description: 游戏不存在
+
+  /api/v1/game/scores:
+    post:
+      summary: 提交演练分数（仅保留最高分）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRequest'
+      responses:
+        "200":
+          description: '{ "bestScore": number, "rank": number }'
+        "400":
+          description: 参数非法
+        "503":
+          description: 排行服务暂不可用
+
+components:
+  schemas:
+    ScoreRequest:
+      type: object
+      required: [gameId, userId, nickname, score]
+      properties:
+        gameId: { type: string, enum: [qps-breakout] }
+        userId: { type: string, pattern: '^[A-Za-z0-9_-]{1,64}$' }
+        nickname: { type: string, maxLength: 32 }
+        score: { type: integer, minimum: 0, maximum: 1000000 }
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        userId: { type: string }
+        nickname: { type: string }
+        score: { type: integer }
