@@ -1,6 +1,7 @@
 # push test → 构建测试镜像 ghcr.io/take-fish/tf-game:test
 # 集中机 scripts/auto-update-test.sh 每 2 分钟拉取并重建测试容器。
 # 生产 :latest 仍由 release.yml 在 master 发布时负责。
+# 注：Maven Central 偶发 TLS 握手失败，重跑工作流即可。
 name: Test Image
 
 on:
