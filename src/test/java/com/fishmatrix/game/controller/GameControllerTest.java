@@ -1,5 +1,7 @@
 package com.fishmatrix.game.controller;
 
+import com.fishmatrix.common.autoconfigure.FishCommonProperties;
+import com.fishmatrix.common.error.GlobalExceptionHandler;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -28,7 +30,7 @@ class GameControllerTest {
     void setUp() {
         service = mock(LeaderboardService.class);
         mockMvc = MockMvcBuilders.standaloneSetup(new GameController(service))
-                .setControllerAdvice(new ApiExceptionHandler())
+                .setControllerAdvice(new GlobalExceptionHandler(new FishCommonProperties()))
                 .build();
     }
 
