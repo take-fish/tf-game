@@ -39,6 +39,12 @@ server:
   shutdown: graceful
 
 management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+    propagation:
+      type: W3C
   endpoints:
     web:
       exposure:
@@ -46,3 +52,9 @@ management:
   endpoint:
     health:
       show-details: always
+
+fm:
+  common:
+    error:
+      service-unavailable-code: GAME_UNAVAILABLE
+      service-unavailable-message: 排行服务暂不可用
