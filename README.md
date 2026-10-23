@@ -6,13 +6,14 @@ FishMatrix（摸鱼矩阵）游戏服务：对局匹配与积分排行 —— Sp
 - 健康检查：`GET /actuator/health`、`GET /api/v1/game/health`
 - 一期范围：`qps-breakout`（QPS 流量打砖块）积分榜；其余 4 款游戏仅前端图表骨架
 - 存储：Redis ZSET `tf:game:leaderboard:qps-breakout` + 昵称 Hash，仅保留最高分
+- 鉴权：`tf-common` 统一校验网关签名身份头（`fm.auth`）；分数提交忽略客户端自报的 `userId` / 昵称
 
 ## API
 
 | 方法/路径 | 说明 |
 |---|---|
 | `GET /api/v1/game/leaderboard?gameId=qps-breakout&limit=10` | 积分榜 |
-| `POST /api/v1/game/scores` | 提交分数（校验 gameId / userId / 昵称 / 0..1,000,000） |
+| `POST /api/v1/game/scores` | 提交分数（身份取自登录态，校验 gameId 与 0..1,000,000） |
 
 ## 本地开发
 
