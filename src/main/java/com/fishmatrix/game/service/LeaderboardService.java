@@ -1,5 +1,6 @@
 package com.fishmatrix.game.service;
 
+import com.fishmatrix.common.auth.CurrentUser;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
@@ -28,21 +29,22 @@ public class LeaderboardService {
         return store.top(gameId, safeLimit);
     }
 
-    public ScoreResponse submit(ScoreRequest request) {
+    public ScoreResponse submit(ScoreRequest request, CurrentUser user) {
         if (request == null) {
             throw new IllegalArgumentException("请求体不能为空");
         }
         requireGame(request.gameId());
-        requireUserId(request.userId());
-        String nickname = request.nickname() == null ? "" : request.nickname().strip();
+        String userId = user.userId();
+        requireUserId(userId);
+        String nickname = user.nickname() == null ? "" : user.nickname().strip();
         if (nickname.isEmpty() || nickname.codePointCount(0, nickname.length()) > 32) {
             throw new IllegalArgumentException("昵称不合法");
         }
         if (request.score() < 0 || request.score() > MAX_SCORE) {
             throw new IllegalArgumentException("分数超出范围");
         }
-        long best = store.submit(request.gameId(), request.userId(), nickname, request.score());
-        long rank = store.rank(request.gameId(), request.userId());
+        long best = store.submit(request.gameId(), userId, nickname, request.score());
+        long rank = store.rank(request.gameId(), userId);
         return new ScoreResponse(best, rank);
     }
 

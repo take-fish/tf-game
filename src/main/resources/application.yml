@@ -59,6 +59,15 @@ management:
       show-details: always
 
 fm:
+  auth:
+    enabled: ${FM_AUTH_ENABLED:true}
+    user-service-url: ${TF_USER_URL:http://127.0.0.1:8101}
+    identity-secret: ${FM_IDENTITY_SECRET:}
+    allow-bearer-fallback: ${FM_AUTH_BEARER_FALLBACK:true}
+    cache-ttl: ${FM_AUTH_CACHE_TTL:30s}
+    public-paths:
+      - /api/v1/game/health
+      - /api/v1/game/meta
   common:
     error:
       service-unavailable-code: GAME_UNAVAILABLE
