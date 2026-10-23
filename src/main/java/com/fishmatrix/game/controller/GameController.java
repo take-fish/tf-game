@@ -1,5 +1,7 @@
 package com.fishmatrix.game.controller;
 
+import com.fishmatrix.common.auth.CurrentUser;
+import com.fishmatrix.common.auth.UserContext;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
@@ -33,6 +35,8 @@ public class GameController {
 
     @PostMapping("/scores")
     public ScoreResponse submit(@RequestBody ScoreRequest request) {
-        return leaderboardService.submit(request);
+        // 身份只取服务端校验结果，忽略客户端自报的 userId / nickname。
+        CurrentUser user = UserContext.require();
+        return leaderboardService.submit(request, user);
     }
 }

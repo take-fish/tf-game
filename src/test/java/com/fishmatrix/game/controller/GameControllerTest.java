@@ -1,5 +1,7 @@
 package com.fishmatrix.game.controller;
 
+import com.fishmatrix.common.auth.CurrentUser;
+import com.fishmatrix.common.auth.UserContext;
 import com.fishmatrix.common.autoconfigure.FishCommonProperties;
 import com.fishmatrix.common.error.GlobalExceptionHandler;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +17,8 @@ import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
 import com.fishmatrix.game.service.LeaderboardService;
 import java.util.List;
+import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -32,6 +36,12 @@ class GameControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(new GameController(service))
                 .setControllerAdvice(new GlobalExceptionHandler(new FishCommonProperties()))
                 .build();
+        UserContext.set(new CurrentUser(7, "jia", "甲", "USER", List.of("USER"), Set.of()));
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserContext.clear();
     }
 
     @Test
@@ -47,7 +57,8 @@ class GameControllerTest {
 
     @Test
     void submitsScore() throws Exception {
-        when(service.submit(any(ScoreRequest.class))).thenReturn(new ScoreResponse(120, 2));
+        when(service.submit(any(ScoreRequest.class), any(CurrentUser.class)))
+                .thenReturn(new ScoreResponse(120, 2));
 
         mockMvc.perform(post("/api/v1/game/scores")
                         .contentType(MediaType.APPLICATION_JSON)
