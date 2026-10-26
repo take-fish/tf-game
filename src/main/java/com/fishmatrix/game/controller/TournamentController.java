@@ -7,6 +7,7 @@ import com.fishmatrix.game.model.TournamentView;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,5 +65,12 @@ public class TournamentController {
     public TournamentView cancel(@PathVariable String id) {
         GameIdentity user = GameIdentity.of(UserContext.require());
         return tournaments.cancel(user, id);
+    }
+
+    @DeleteMapping("/{id}")
+    public Map<String, Object> delete(@PathVariable String id) {
+        GameIdentity user = GameIdentity.of(UserContext.require());
+        tournaments.delete(user, id);
+        return Map.of("id", id, "deleted", true);
     }
 }
