@@ -43,10 +43,12 @@ public class GameNotificationService {
         if (repository.exists(TYPE_FINAL_START, tournament.id(), match.id())) {
             return;
         }
+        String name = tournamentName(tournament);
         NotificationView notification = build(
                 TYPE_FINAL_START, tournament.id(), match.id(),
-                "The final begins - wuziqi！",
-                "决赛开始：" + match.player1Nickname() + " vs " + match.player2Nickname() + "，点击进入观战");
+                "The final begins - " + name + "！",
+                name + " 决赛开始：" + match.player1Nickname() + " vs "
+                        + match.player2Nickname() + "，点击进入观战");
         saveAndBroadcast(notification);
     }
 
@@ -59,10 +61,11 @@ public class GameNotificationService {
         }
         String nickname = tournament.championNickname() == null
                 ? tournament.championUserId() : tournament.championNickname();
+        String name = tournamentName(tournament);
         NotificationView notification = build(
                 TYPE_CHAMPION, tournament.id(), null,
-                "The champion is " + nickname + "！！！",
-                "热力五子棋冠军：" + nickname);
+                "The champion of " + name + " is " + nickname + "！！！",
+                name + " 冠军：" + nickname);
         saveAndBroadcast(notification);
     }
 
@@ -72,6 +75,12 @@ public class GameNotificationService {
             return repository.latest(now, limit);
         }
         return repository.recent(after, now, limit);
+    }
+
+    /** 播报名称取创建赛事时填写的名称；历史数据缺失时才回退到默认名称。 */
+    private String tournamentName(TournamentRecord tournament) {
+        String name = tournament.name();
+        return name == null || name.isBlank() ? "热力五子棋" : name.trim();
     }
 
     private NotificationView build(String type, String tournamentId, String matchId,
