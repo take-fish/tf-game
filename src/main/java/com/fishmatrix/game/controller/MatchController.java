@@ -37,7 +37,8 @@ public class MatchController {
 
     @GetMapping("/{id}")
     public MatchView detail(@PathVariable String id) {
-        return matches.detail(id);
+        GameIdentity user = GameIdentity.of(UserContext.require());
+        return matches.detailForUser(user, id);
     }
 
     @GetMapping("/{id}/chat")
@@ -46,7 +47,7 @@ public class MatchController {
             @RequestParam(defaultValue = "PUBLIC") String channel,
             @RequestParam(defaultValue = "50") int limit) {
         GameIdentity user = GameIdentity.of(UserContext.require());
-        MatchView match = matches.detail(id);
+        MatchView match = matches.detailForUser(user, id);
         List<ChatMessageView> messages = chats.history(
                 user, match.tournamentId(), id, channel, limit);
         return Map.of("messages", messages);
@@ -55,7 +56,7 @@ public class MatchController {
     @PostMapping("/{id}/chat")
     public ChatMessageView send(@PathVariable String id, @RequestBody SendChatRequest request) {
         GameIdentity user = GameIdentity.of(UserContext.require());
-        MatchView match = matches.detail(id);
+        MatchView match = matches.detailForUser(user, id);
         return chats.send(user, new SendChatRequest(
                 match.tournamentId(), id, request.channel(), request.toUserId(), request.content()));
     }

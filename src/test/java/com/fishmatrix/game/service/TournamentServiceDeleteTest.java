@@ -101,7 +101,7 @@ class TournamentServiceDeleteTest {
 
     private TournamentRecord tournament(String status, String creatorUserId) {
         return new TournamentRecord(
-                "t1", "演练", "heatmap-gomoku", "BO1", "TBD", status,
+                "t1", "演练", "heatmap-gomoku", "TOURNAMENT", "BO1", "TBD", status,
                 creatorUserId, "创建者", 2, 0L, 0, 0, null, null,
                 1_000L, null, null);
     }

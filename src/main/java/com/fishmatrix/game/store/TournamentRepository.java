@@ -32,12 +32,13 @@ public class TournamentRepository {
     public void insert(TournamentRecord t) {
         jdbc.update("""
                 INSERT INTO game_tournament
-                    (id, name, game_id, format, bracket_type, status, creator_user_id, creator_nickname,
-                     target_players, invite_deadline, current_round, total_rounds, champion_user_id,
-                     champion_nickname, created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, name, game_id, kind, format, bracket_type, status,
+                     creator_user_id, creator_nickname, target_players, invite_deadline,
+                     current_round, total_rounds, champion_user_id, champion_nickname,
+                     created_at, started_at, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                t.id(), t.name(), t.gameId(), t.format(), t.bracketType(), t.status(),
+                t.id(), t.name(), t.gameId(), t.kind(), t.format(), t.bracketType(), t.status(),
                 t.creatorUserId(), t.creatorNickname(), t.targetPlayers(),
                 SqlTime.ts(t.inviteDeadline()), t.currentRound(), t.totalRounds(),
                 t.championUserId(), t.championNickname(), SqlTime.ts(t.createdAt()),
@@ -64,10 +65,38 @@ public class TournamentRepository {
     public List<TournamentRecord> listRecent(int limit) {
         return jdbc.query("""
                 SELECT * FROM game_tournament
-                 WHERE deleted_at IS NULL
+                 WHERE kind = 'TOURNAMENT' AND deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT ?
                 """, TOURNAMENT_MAPPER, Math.min(50, Math.max(1, limit)));
+    }
+
+    /** 约战历史：只返回当前用户参与的一对一对局，按创建时间倒序。 */
+    public List<TournamentRecord> listDuelsForUser(String userId, int limit) {
+        return jdbc.query("""
+                SELECT t.* FROM game_tournament t
+                  JOIN game_tournament_player p ON p.tournament_id = t.id
+                 WHERE t.kind = 'DUEL'
+                   AND t.deleted_at IS NULL
+                   AND p.user_id = ?
+                 ORDER BY t.created_at DESC
+                 LIMIT ?
+                """, TOURNAMENT_MAPPER, userId, Math.min(50, Math.max(1, limit)));
+    }
+
+    /** 同一对用户已有未结束约战时，避免重复发起。 */
+    public boolean existsActiveDuelBetween(String firstUserId, String secondUserId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM game_tournament t
+                  JOIN game_tournament_player p1 ON p1.tournament_id = t.id
+                  JOIN game_tournament_player p2 ON p2.tournament_id = t.id
+                 WHERE t.kind = 'DUEL'
+                   AND t.status IN ('INVITING', 'RUNNING')
+                   AND t.deleted_at IS NULL
+                   AND p1.user_id = ?
+                   AND p2.user_id = ?
+                """, Integer.class, firstUserId, secondUserId);
+        return count != null && count > 0;
     }
 
     public List<TournamentRecord> listRunning() {
@@ -147,6 +176,7 @@ public class TournamentRepository {
                   JOIN game_tournament_player p ON p.tournament_id = t.id
                  WHERE p.user_id = ?
                    AND p.status = 'INVITED'
+                   AND t.kind = 'TOURNAMENT'
                    AND t.status = 'INVITING'
                    AND t.invite_deadline > ?
                    AND t.deleted_at IS NULL
@@ -227,6 +257,7 @@ public class TournamentRepository {
                 rs.getString("id"),
                 rs.getString("name"),
                 rs.getString("game_id"),
+                rs.getString("kind"),
                 rs.getString("format"),
                 rs.getString("bracket_type"),
                 rs.getString("status"),

@@ -74,7 +74,7 @@ class GameNotificationServiceTest {
 
     private TournamentRecord tournament(String name, String championNickname) {
         return new TournamentRecord(
-                "t1", name, "heatmap-gomoku", "BO1", "SINGLE_ELIMINATION",
+                "t1", name, "heatmap-gomoku", "TOURNAMENT", "BO1", "SINGLE_ELIMINATION",
                 "FINISHED", "u1", "Creator", 2, 0L, 0, 0,
                 championNickname == null ? null : "u2", championNickname,
                 1_000L, 2_000L, 3_000L);
