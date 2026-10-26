@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS game_tournament (
     created_at TIMESTAMP(3) NOT NULL,
     started_at TIMESTAMP(3) NULL,
     finished_at TIMESTAMP(3) NULL,
+    deleted_at TIMESTAMP(3) NULL,
     PRIMARY KEY (id)
 );
 
@@ -121,6 +122,7 @@ CREATE TABLE IF NOT EXISTS game_notification (
 
 CREATE INDEX IF NOT EXISTS idx_player_points ON game_player_stat (points, wins, championships);
 CREATE INDEX IF NOT EXISTS idx_tournament_status ON game_tournament (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_tournament_deleted ON game_tournament (deleted_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_tournament_player_user ON game_tournament_player (user_id, status);
 CREATE INDEX IF NOT EXISTS idx_match_tournament ON game_match (tournament_id, round_no, slot_no);
 CREATE INDEX IF NOT EXISTS idx_match_player ON game_match (player1_user_id, player2_user_id);

@@ -21,6 +21,7 @@ FishMatrix（摸鱼矩阵）游戏服务：五子棋赛事编排、实时对战�
 - 邀请 5 分钟未响应视为拒绝；接受人数不足 2 人时赛事取消。
 - 五子棋：15×15、黑先无禁手、每局换先；每步 30 秒超时判负，断线 60 秒判负，支持认输。
 - 最终决赛首局真正开始时，向全站推送 `The final begins - {赛事名称}！`；赛事结束时推送 `The champion of {赛事名称} is {nickname}！！！`。赛事名称取创建时填写的名称。
+- 删除为软删除：创建者或 `ADMIN` 可删除未处于 `RUNNING` 的赛事；删除后大厅、邀请、详情与运行中调度都不再返回，历史数据保留在库中（`deleted_at`）。
 
 ## REST API
 
@@ -35,6 +36,7 @@ FishMatrix（摸鱼矩阵）游戏服务：五子棋赛事编排、实时对战�
 | `POST /api/v1/game/tournaments/{id}/accept` | 接受邀请 |
 | `POST /api/v1/game/tournaments/{id}/decline` | 拒绝邀请 |
 | `POST /api/v1/game/tournaments/{id}/cancel` | 创建者取消邀请中赛事 |
+| `DELETE /api/v1/game/tournaments/{id}` | 创建者或 `ADMIN` 软删除非进行中赛事；返回 `{id, deleted:true}` |
 | `GET /api/v1/game/matches/active` | 我参与的进行中比赛 |
 | `GET /api/v1/game/matches/{id}` | 比赛详情（含 `currentRound`、落子、休息截止） |
 | `GET /api/v1/game/matches/{id}/chat?channel=PUBLIC\|PLAYER_DM&limit=50` | 比赛聊天历史 |
@@ -47,14 +49,16 @@ FishMatrix（摸鱼矩阵）游戏服务：五子棋赛事编排、实时对战�
 ## WebSocket `/ws/game?ticket=...`
 
 - 入站：`ping`、`refresh_lobby`、`watch_match`、`leave_match`、`match_ready`、`place_stone`、`resign`、`chat`
-- 出站：`game_ready`、`tournament_update`、`game_invitation`、`tournament_cancelled`、`match_update`、`match_ready`、`stone`、`match_rest`、`match_result`、`game_chat`、`notification`、`pong`、`left_match`、`error`
+- 出站：`game_ready`、`tournament_update`、`game_invitation`、`tournament_cancelled`、`tournament_deleted`、`match_update`、`match_ready`、`stone`、`match_rest`、`match_result`、`game_chat`、`notification`、`pong`、`left_match`、`error`
 - `game_ready` 在连接建立时自动下发，包含在线用户、赛事、邀请与我的进行中比赛。
 - `stone` 广播给双方选手与已 `watch_match` 的观战者；公开聊天所有观战者可读，选手私聊仅双方可见。
 - ticket TTL 60 秒，Redis `GETDEL` 一次性消费；断线重连由客户端重新申请 ticket。
 
 ## 数据表
 
-`game_player_stat`（综合排行榜）、`game_tournament`、`game_tournament_player`、`game_match`、`game_round`、`game_move`、`game_chat_message`、`game_notification`。
+`game_player_stat`（综合排行榜）、`game_tournament`（含软删除字段 `deleted_at`）、`game_tournament_player`、`game_match`、`game_round`、`game_move`、`game_chat_message`、`game_notification`。
+
+迁移：`V1__baseline.sql` 建基线，`V2__tournament_soft_delete.sql` 为赛事表增加 `deleted_at` 与索引；生产自动更新不会执行 Flyway，发布后需手动运行 `db-migrate-game`。
 
 ## 配置
 
