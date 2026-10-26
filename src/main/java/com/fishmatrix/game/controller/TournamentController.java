@@ -40,7 +40,7 @@ public class TournamentController {
 
     @GetMapping("/{id}")
     public TournamentView get(@PathVariable String id) {
-        return tournaments.get(id);
+        return tournaments.getTournament(id);
     }
 
     @PostMapping
