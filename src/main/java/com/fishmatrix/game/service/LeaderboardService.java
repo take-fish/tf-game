@@ -4,59 +4,46 @@ import com.fishmatrix.common.auth.CurrentUser;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
-import com.fishmatrix.game.store.LeaderboardStore;
+import com.fishmatrix.game.store.PlayerStatRepository;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
+/**
+ * 综合排行榜：五子棋与打砖块共用 game_player_stat。
+ * 排行榜接口不再区分游戏，gameId 仅为兼容旧前端保留。
+ */
 @Service
 public class LeaderboardService {
 
-    private static final Set<String> GAMES = Set.of("qps-breakout");
-    private static final Pattern USER_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+    private static final Set<String> SCORE_GAMES = Set.of("qps-breakout");
     private static final long MAX_SCORE = 1_000_000L;
 
-    private final LeaderboardStore store;
+    private final PlayerStatRepository stats;
 
-    public LeaderboardService(LeaderboardStore store) {
-        this.store = store;
+    public LeaderboardService(PlayerStatRepository stats) {
+        this.stats = stats;
     }
 
     public List<LeaderboardEntry> leaderboard(String gameId, int limit) {
-        requireGame(gameId);
-        int safeLimit = Math.min(50, Math.max(1, limit));
-        return store.top(gameId, safeLimit);
+        return stats.top(limit);
     }
 
     public ScoreResponse submit(ScoreRequest request, CurrentUser user) {
         if (request == null) {
             throw new IllegalArgumentException("请求体不能为空");
         }
-        requireGame(request.gameId());
-        String userId = user.userId();
-        requireUserId(userId);
-        String nickname = user.nickname() == null ? "" : user.nickname().strip();
-        if (nickname.isEmpty() || nickname.codePointCount(0, nickname.length()) > 32) {
-            throw new IllegalArgumentException("昵称不合法");
+        if (request.gameId() == null || !SCORE_GAMES.contains(request.gameId())) {
+            throw new IllegalArgumentException("该游戏不支持提交分数");
         }
         if (request.score() < 0 || request.score() > MAX_SCORE) {
             throw new IllegalArgumentException("分数超出范围");
         }
-        long best = store.submit(request.gameId(), userId, nickname, request.score());
-        long rank = store.rank(request.gameId(), userId);
-        return new ScoreResponse(best, rank);
-    }
-
-    private void requireGame(String gameId) {
-        if (gameId == null || !GAMES.contains(gameId)) {
-            throw new IllegalArgumentException("游戏不存在");
+        String nickname = user.nickname() == null ? "" : user.nickname().strip();
+        if (nickname.isEmpty() || nickname.codePointCount(0, nickname.length()) > 32) {
+            throw new IllegalArgumentException("昵称不合法");
         }
-    }
-
-    private void requireUserId(String userId) {
-        if (userId == null || !USER_ID.matcher(userId).matches()) {
-            throw new IllegalArgumentException("userId 格式不合法");
-        }
+        stats.recordBreakoutScore(user.userId(), nickname, request.score());
+        return new ScoreResponse(stats.bestScore(user.userId()), stats.rank(user.userId()));
     }
 }
