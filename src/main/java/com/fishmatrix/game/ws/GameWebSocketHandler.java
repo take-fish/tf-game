@@ -3,6 +3,7 @@ package com.fishmatrix.game.ws;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishmatrix.common.error.ApiException;
 import com.fishmatrix.game.model.GameIdentity;
+import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.model.WsInbound;
 import com.fishmatrix.game.service.GameChatService;
@@ -136,12 +137,14 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private void watchMatch(GameSession session, String matchId) {
+    /** 先校验再订阅：约战校验失败时不能留下观战关系，否则会继续收到比赛广播。 */
+    void watchMatch(GameSession session, String matchId) {
         String id = requireMatchId(matchId);
+        MatchView match = matches.detailForUser(session.getIdentity(), id);
         session.setWatchingMatchId(id);
         registry.send(session, Map.of(
                 "type", "match_update",
-                "match", matches.detailForUser(session.getIdentity(), id)));
+                "match", match));
     }
 
     private void sendLobbyState(GameSession session) {
