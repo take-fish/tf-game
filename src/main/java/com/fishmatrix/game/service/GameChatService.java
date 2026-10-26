@@ -61,6 +61,7 @@ public class GameChatService {
                     "消息长度不能超过 " + properties.maxChatLength() + " 个字符");
         }
         TournamentRecord tournament = requireTournament(request.tournamentId());
+        rejectDuel(tournament);
         if ("FINISHED".equals(tournament.status()) || "CANCELLED".equals(tournament.status())) {
             throw GameException.conflict("GAME_CHAT_CLOSED", "赛事已结束，聊天仅供回看");
         }
@@ -105,6 +106,7 @@ public class GameChatService {
     public List<ChatMessageView> history(GameIdentity user, String tournamentId, String matchId,
                                          String channel, int limit) {
         TournamentRecord tournament = requireTournament(tournamentId);
+        rejectDuel(tournament);
         String normalized = normalizeChannel(channel);
         String normalizedMatchId = blankToNull(matchId);
         if (CHANNEL_PLAYER_DM.equals(normalized)) {
@@ -131,6 +133,13 @@ public class GameChatService {
         }
         return tournaments.findById(id)
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
+    }
+
+    /** 一对一约战不提供聊天，历史与发送一并拒绝。 */
+    private static void rejectDuel(TournamentRecord tournament) {
+        if (TournamentService.KIND_DUEL.equals(tournament.kind())) {
+            throw GameException.forbidden("约战不提供聊天");
+        }
     }
 
     private MatchRecord requireMatch(String id) {

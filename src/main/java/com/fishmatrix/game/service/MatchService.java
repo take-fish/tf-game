@@ -69,12 +69,23 @@ public class MatchService {
     public MatchView detail(String matchId) {
         MatchRecord match = requireMatch(matchId);
         RoundRecord round = matches.latestRound(matchId).orElse(null);
-        return toView(match, round == null ? null : toRoundView(round));
+        return toView(match, tournamentKind(match), round == null ? null : toRoundView(round));
+    }
+
+    /** 约战详情只对双方开放，普通赛事保持公开观战。 */
+    public MatchView detailForUser(GameIdentity user, String matchId) {
+        MatchRecord match = requireMatch(matchId);
+        String kind = tournamentKind(match);
+        if (TournamentService.KIND_DUEL.equals(kind) && !isParticipant(match, user.userId())) {
+            throw GameException.forbidden("约战仅双方可见");
+        }
+        RoundRecord round = matches.latestRound(matchId).orElse(null);
+        return toView(match, kind, round == null ? null : toRoundView(round));
     }
 
     public List<MatchView> activeForUser(String userId) {
         return matches.listReadyOrRunningByUser(userId).stream()
-                .map(match -> toView(match, null))
+                .map(match -> toView(match, tournamentKind(match), null))
                 .toList();
     }
 
@@ -453,6 +464,10 @@ public class MatchService {
 
     private void notifyFinalStart(MatchRecord match) {
         tournaments.findById(match.tournamentId()).ifPresent(tournament -> {
+            // 约战没有全站播报，也不产生冠军通知。
+            if (TournamentService.KIND_DUEL.equals(tournament.kind())) {
+                return;
+            }
             boolean finalStage = BracketPlanner.STAGE_KNOCKOUT.equals(match.stage())
                     || BracketPlanner.STAGE_LADDER.equals(match.stage());
             if (finalStage && match.roundNo() == tournament.totalRounds()) {
@@ -468,11 +483,15 @@ public class MatchService {
 
     private MatchRecord requireParticipant(GameIdentity user, String matchId) {
         MatchRecord match = requireMatch(matchId);
-        if (!user.userId().equals(match.player1UserId())
-                && !user.userId().equals(match.player2UserId())) {
+        if (!isParticipant(match, user.userId())) {
             throw GameException.forbidden("只有参赛选手可以操作比赛");
         }
         return match;
+    }
+
+    private static boolean isParticipant(MatchRecord match, String userId) {
+        return userId != null
+                && (userId.equals(match.player1UserId()) || userId.equals(match.player2UserId()));
     }
 
     private RoundView toRoundView(RoundRecord round) {
@@ -489,13 +508,19 @@ public class MatchService {
                 round.startedAt(), round.finishedAt(), matches.listMoves(round.id()));
     }
 
-    private MatchView toView(MatchRecord match, RoundView round) {
+    private MatchView toView(MatchRecord match, String kind, RoundView round) {
         return new MatchView(
-                match.id(), match.tournamentId(), match.roundNo(), match.slotNo(), match.stage(),
-                match.status(), match.player1UserId(), match.player1Nickname(),
+                match.id(), match.tournamentId(), kind, match.roundNo(), match.slotNo(),
+                match.stage(), match.status(), match.player1UserId(), match.player1Nickname(),
                 match.player2UserId(), match.player2Nickname(), match.player1Score(),
                 match.player2Score(), match.winnerUserId(), match.nextMatchId(),
                 match.createdAt(), match.startedAt(), match.finishedAt(), round);
+    }
+
+    private String tournamentKind(MatchRecord match) {
+        return tournaments.findById(match.tournamentId())
+                .map(TournamentRecord::kind)
+                .orElse(TournamentService.KIND_TOURNAMENT);
     }
 
     private void broadcastMatch(MatchRecord match) {

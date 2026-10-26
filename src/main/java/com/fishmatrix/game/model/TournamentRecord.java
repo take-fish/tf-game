@@ -4,6 +4,7 @@ public record TournamentRecord(
         String id,
         String name,
         String gameId,
+        String kind,
         String format,
         String bracketType,
         String status,

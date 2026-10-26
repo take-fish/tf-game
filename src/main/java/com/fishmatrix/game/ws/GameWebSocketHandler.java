@@ -141,7 +141,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         session.setWatchingMatchId(id);
         registry.send(session, Map.of(
                 "type", "match_update",
-                "match", matches.detail(id)));
+                "match", matches.detailForUser(session.getIdentity(), id)));
     }
 
     private void sendLobbyState(GameSession session) {
@@ -154,6 +154,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         frame.put("onlineUserIds", registry.onlineUserIds());
         frame.put("tournaments", tournaments.list(20));
         frame.put("invitations", tournaments.invitations(identity.userId()));
+        frame.put("duels", tournaments.listDuelsForUser(identity.userId(), 20));
         frame.put("activeMatches", matches.activeForUser(identity.userId()));
         registry.send(session, frame);
     }

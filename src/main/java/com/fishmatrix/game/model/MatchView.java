@@ -7,6 +7,7 @@ package com.fishmatrix.game.model;
 public record MatchView(
         String id,
         String tournamentId,
+        String kind,
         int roundNo,
         int slotNo,
         String stage,
