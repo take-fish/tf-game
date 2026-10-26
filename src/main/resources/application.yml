@@ -1,6 +1,10 @@
 spring:
   flyway:
     enabled: ${SPRING_FLYWAY_ENABLED:false}
+  sql:
+    init:
+      mode: ${SQL_INIT_MODE:never}
+      encoding: UTF-8
   application:
     name: tf-game
   lifecycle:
@@ -42,6 +46,18 @@ app:
   # 运行环境标识：统一 JSON 日志的 env 字段来源；生产/测试栈分别注入 production/test
   environment: ${APP_ENV:production}
   version: ${APP_VERSION:dev}
+  game:
+    scheduling-enabled: ${GAME_SCHEDULING_ENABLED:true}
+    min-players: ${GAME_MIN_PLAYERS:2}
+    max-players: ${GAME_MAX_PLAYERS:16}
+    invite-timeout-seconds: ${GAME_INVITE_TIMEOUT_SECONDS:300}
+    rest-seconds: ${GAME_REST_SECONDS:60}
+    move-timeout-seconds: ${GAME_MOVE_TIMEOUT_SECONDS:30}
+    disconnect-timeout-seconds: ${GAME_DISCONNECT_TIMEOUT_SECONDS:60}
+    ws-ticket-ttl-seconds: ${GAME_WS_TICKET_TTL_SECONDS:60}
+    notification-ttl-seconds: ${GAME_NOTIFICATION_TTL_SECONDS:600}
+    max-chat-length: ${GAME_MAX_CHAT_LENGTH:1000}
+    allowed-origins: ${GAME_ALLOWED_ORIGINS:*}
 
 management:
   tracing:
