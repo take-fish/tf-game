@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishmatrix.common.trace.TraceIds;
 import com.fishmatrix.game.model.GameIdentity;
+import com.fishmatrix.game.model.GameOnlineMember;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -58,6 +59,16 @@ public class GameSessionRegistry {
 
     public List<GameSession> all() {
         return List.copyOf(sessions.values());
+    }
+
+    public List<GameOnlineMember> onlineMembers() {
+        Map<String, GameOnlineMember> members = new LinkedHashMap<>();
+        for (GameSession session : sessions.values()) {
+            members.putIfAbsent(
+                    session.getUserId(),
+                    new GameOnlineMember(session.getUserId(), session.getNickname()));
+        }
+        return List.copyOf(members.values());
     }
 
     public Set<String> onlineUserIds() {

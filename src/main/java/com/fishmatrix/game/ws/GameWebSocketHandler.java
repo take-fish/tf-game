@@ -155,6 +155,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 "userId", identity.userId(),
                 "nickname", identity.nickname()));
         frame.put("onlineUserIds", registry.onlineUserIds());
+        frame.put("onlineMembers", registry.onlineMembers());
         frame.put("tournaments", tournaments.list(20));
         frame.put("invitations", tournaments.invitations(identity.userId()));
         frame.put("duels", tournaments.listDuelsForUser(identity.userId(), 20));
