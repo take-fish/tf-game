@@ -55,28 +55,33 @@ public class TournamentRepository {
     }
 
     public Optional<TournamentRecord> findById(String id) {
-        return jdbc.query("SELECT * FROM game_tournament WHERE id = ?", TOURNAMENT_MAPPER, id)
-                .stream().findFirst();
+        return jdbc.query("""
+                SELECT * FROM game_tournament
+                 WHERE id = ? AND deleted_at IS NULL
+                """, TOURNAMENT_MAPPER, id).stream().findFirst();
     }
 
     public List<TournamentRecord> listRecent(int limit) {
         return jdbc.query("""
                 SELECT * FROM game_tournament
+                 WHERE deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT ?
                 """, TOURNAMENT_MAPPER, Math.min(50, Math.max(1, limit)));
     }
 
     public List<TournamentRecord> listRunning() {
-        return jdbc.query(
-                "SELECT * FROM game_tournament WHERE status = 'RUNNING' ORDER BY created_at ASC",
-                TOURNAMENT_MAPPER);
+        return jdbc.query("""
+                SELECT * FROM game_tournament
+                 WHERE status = 'RUNNING' AND deleted_at IS NULL
+                 ORDER BY created_at ASC
+                """, TOURNAMENT_MAPPER);
     }
 
     public List<TournamentRecord> listInvitingExpired(long now) {
         return jdbc.query("""
                 SELECT * FROM game_tournament
-                 WHERE status = 'INVITING' AND invite_deadline <= ?
+                 WHERE status = 'INVITING' AND invite_deadline <= ? AND deleted_at IS NULL
                  ORDER BY created_at ASC
                 """, TOURNAMENT_MAPPER, SqlTime.ts(now));
     }
@@ -144,6 +149,7 @@ public class TournamentRepository {
                    AND p.status = 'INVITED'
                    AND t.status = 'INVITING'
                    AND t.invite_deadline > ?
+                   AND t.deleted_at IS NULL
                  ORDER BY t.created_at DESC
                 """, TOURNAMENT_MAPPER, userId, SqlTime.ts(now));
     }
@@ -204,6 +210,15 @@ public class TournamentRepository {
                 UPDATE game_tournament
                    SET status = 'CANCELLED', finished_at = ?
                  WHERE id = ? AND status = 'INVITING'
+                """, SqlTime.ts(now), tournamentId);
+    }
+
+    /** 软删除：仅隐藏记录，进行中的赛事不允许删除。 */
+    public int softDelete(String tournamentId, long now) {
+        return jdbc.update("""
+                UPDATE game_tournament
+                   SET deleted_at = ?
+                 WHERE id = ? AND deleted_at IS NULL AND status <> 'RUNNING'
                 """, SqlTime.ts(now), tournamentId);
     }
 

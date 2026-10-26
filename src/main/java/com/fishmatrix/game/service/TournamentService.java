@@ -192,6 +192,26 @@ public class TournamentService {
         return get(tournamentId);
     }
 
+    /** 软删除：记录从大厅、邀请与详情中消失；进行中的赛事必须先结束。 */
+    @Transactional
+    public void delete(GameIdentity user, String tournamentId) {
+        TournamentRecord tournament = tournaments.findById(tournamentId)
+                .orElseThrow(() -> GameException.notFound("赛事不存在"));
+        if (!tournament.creatorUserId().equals(user.userId()) && !"ADMIN".equals(user.role())) {
+            throw GameException.forbidden("只有创建者可以删除赛事");
+        }
+        if ("RUNNING".equals(tournament.status())) {
+            throw GameException.conflict("GAME_TOURNAMENT_RUNNING", "赛事进行中，不能删除");
+        }
+        if (tournaments.softDelete(tournamentId, System.currentTimeMillis()) == 0) {
+            throw GameException.notFound("赛事不存在");
+        }
+        registry.broadcastAll(Map.of(
+                "type", "tournament_deleted",
+                "tournamentId", tournamentId));
+        log.info("赛事 {} 已删除（{}）", tournamentId, tournament.status());
+    }
+
     /** 邀请超时：未响应视为拒绝，再决定开赛或取消。 */
     @Scheduled(fixedDelay = 1000)
     @Transactional
