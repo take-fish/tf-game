@@ -18,6 +18,8 @@ public record TournamentView(
         int totalRounds,
         String championUserId,
         String championNickname,
+        String runnerUpUserId,
+        String runnerUpNickname,
         long createdAt,
         Long startedAt,
         Long finishedAt,

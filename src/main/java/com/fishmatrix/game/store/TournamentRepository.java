@@ -35,14 +35,17 @@ public class TournamentRepository {
                     (id, name, game_id, blind_layout, kind, format, bracket_type, status,
                      creator_user_id, creator_nickname, target_players, invite_deadline,
                      current_round, total_rounds, champion_user_id, champion_nickname,
+                     runner_up_user_id, runner_up_nickname,
                      created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 t.id(), t.name(), t.gameId(), t.blindLayout(), t.kind(), t.format(),
                 t.bracketType(), t.status(),
                 t.creatorUserId(), t.creatorNickname(), t.targetPlayers(),
                 SqlTime.ts(t.inviteDeadline()), t.currentRound(), t.totalRounds(),
-                t.championUserId(), t.championNickname(), SqlTime.ts(t.createdAt()),
+                t.championUserId(), t.championNickname(),
+                t.runnerUpUserId(), t.runnerUpNickname(),
+                SqlTime.ts(t.createdAt()),
                 SqlTime.ts(t.startedAt()), SqlTime.ts(t.finishedAt()));
     }
 
@@ -213,7 +216,18 @@ public class TournamentRepository {
                 """, nextRound, tournamentId, expectedRound);
     }
 
-    /** 积分赛结束，原子切换到阶梯决赛。 */
+    /** 积分赛结束，原子切换到页面淘汰赛。 */
+    public int startPagePlayoff(String tournamentId, int totalRounds,
+                                int firstRound, int expectedRound) {
+        return jdbc.update("""
+                UPDATE game_tournament
+                   SET bracket_type = 'PAGE_PLAYOFF', total_rounds = ?, current_round = ?
+                 WHERE id = ? AND status = 'RUNNING'
+                   AND bracket_type = 'LEAGUE' AND current_round = ?
+                """, totalRounds, firstRound, tournamentId, expectedRound);
+    }
+
+    /** 旧赛事兼容：积分赛结束切换到阶梯决赛。 */
     public int startLadder(String tournamentId, int totalRounds, int challengeRound, int expectedRound) {
         return jdbc.update("""
                 UPDATE game_tournament
@@ -229,12 +243,15 @@ public class TournamentRepository {
                 bracketType, totalRounds, tournamentId);
     }
 
-    public void finish(String tournamentId, String championUserId, String championNickname, long now) {
+    public void finish(String tournamentId, String championUserId, String championNickname,
+                       String runnerUpUserId, String runnerUpNickname, long now) {
         jdbc.update("""
                 UPDATE game_tournament
-                   SET status = 'FINISHED', champion_user_id = ?, champion_nickname = ?, finished_at = ?
+                   SET status = 'FINISHED', champion_user_id = ?, champion_nickname = ?,
+                       runner_up_user_id = ?, runner_up_nickname = ?, finished_at = ?
                  WHERE id = ?
-                """, championUserId, championNickname, SqlTime.ts(now), tournamentId);
+                """, championUserId, championNickname, runnerUpUserId,
+                runnerUpNickname, SqlTime.ts(now), tournamentId);
     }
 
     public void cancel(String tournamentId, long now) {
@@ -271,6 +288,8 @@ public class TournamentRepository {
                 rs.getInt("total_rounds"),
                 rs.getString("champion_user_id"),
                 rs.getString("champion_nickname"),
+                rs.getString("runner_up_user_id"),
+                rs.getString("runner_up_nickname"),
                 SqlTime.millis(rs, "created_at"),
                 SqlTime.nullableMillis(rs, "started_at"),
                 SqlTime.nullableMillis(rs, "finished_at"),

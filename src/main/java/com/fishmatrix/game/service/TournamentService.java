@@ -1,5 +1,6 @@
 package com.fishmatrix.game.service;
 
+import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.config.GameProperties;
 import com.fishmatrix.game.model.BlindLayout;
 import com.fishmatrix.game.model.CreateDuelRequest;
@@ -42,8 +43,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 赛事生命周期：
  * - 邀请 5 分钟，未响应视为拒绝；至少 2 人接受才开赛。
- * - 2 的幂随机单败；其余先积分排位（3-5 单循环，6+ 瑞士轮 3 轮），再阶梯决赛。
- * - 每场比赛结束推进晋级、记排行榜；最终决赛与冠军发全站通知。
+ * - 2 的幂随机单败；其余先积分排位（3-5 单循环，6+ 瑞士轮 3 轮），
+ *   前四进入页面淘汰赛（三打四、胜者打二、决赛打一）。
+ * - 赛事默认系统随机剧本；页面淘汰赛只有高顺位选手拥有首局剧本选择权。
+ * - 只在赛事结束时给冠亚军发积分（冠军 30 / 亚军 10），比赛过程不计积分。
  */
 @Service
 public class TournamentService {
@@ -87,7 +90,8 @@ public class TournamentService {
         if (!FORMATS.contains(format)) {
             throw GameException.badRequest("GAME_TOURNAMENT_INVALID", "赛制只支持 BO1 / BO3 / BO5");
         }
-        String gameId = resolveGameId(request.gameId(), "GAME_TOURNAMENT_INVALID");
+        String gameId = resolveGameId(request.gameId(), ArenaGames.RANDOM,
+                "GAME_TOURNAMENT_INVALID");
         BlindLayout blindLayout = resolveBlindLayout(
                 gameId, request.blindLayout(), "GAME_TOURNAMENT_INVALID");
         String name = request.name() == null || request.name().isBlank()
@@ -111,7 +115,7 @@ public class TournamentService {
                 id, name, gameId, KIND_TOURNAMENT, format, "TBD", "INVITING",
                 creator.userId(), creator.nickname(), refs.size(),
                 now + properties.inviteTimeoutSeconds() * 1000L,
-                0, 0, null, null, now, null, null,
+                0, 0, null, null, null, null, now, null, null,
                 blindLayout == null ? null : blindLayout.name());
         tournaments.insert(tournament);
 
@@ -160,7 +164,7 @@ public class TournamentService {
         if (!FORMATS.contains(format)) {
             throw GameException.badRequest("GAME_DUEL_INVALID", "赛制只支持 BO1 / BO3 / BO5");
         }
-        String gameId = resolveGameId(request.gameId(), "GAME_DUEL_INVALID");
+        String gameId = resolveGameId(request.gameId(), ArenaGames.GOMOKU, "GAME_DUEL_INVALID");
         BlindLayout blindLayout = resolveBlindLayout(
                 gameId, request.blindLayout(), "GAME_DUEL_INVALID");
         String opponentNickname = request.opponentNickname() == null
@@ -186,7 +190,7 @@ public class TournamentService {
                 id, name, gameId, KIND_DUEL, format, "TBD", "INVITING",
                 creator.userId(), creator.nickname(), 2,
                 now + properties.inviteTimeoutSeconds() * 1000L,
-                0, 0, null, null, now, null, null,
+                0, 0, null, null, null, null, now, null, null,
                 blindLayout == null ? null : blindLayout.name());
         tournaments.insert(duel);
         tournaments.insertPlayer(new TournamentPlayerRecord(
@@ -234,6 +238,41 @@ public class TournamentService {
         return tournaments.listRecent(limit).stream()
                 .map(this::view)
                 .toList();
+    }
+
+    /**
+     * 页面淘汰赛首局剧本选择：只有对阵记录中的高顺位选手可以改选，
+     * 且必须在小局开始前完成；系统随机剧目则由服务端重新抽取。
+     */
+    @Transactional
+    public MatchView chooseGame(GameIdentity user, String matchId, String gameId) {
+        MatchRecord match = matches.findById(matchId)
+                .orElseThrow(() -> GameException.notFound("比赛不存在"));
+        TournamentRecord tournament = tournaments.findById(match.tournamentId())
+                .orElseThrow(() -> GameException.notFound("赛事不存在"));
+        if (!"RUNNING".equals(tournament.status())) {
+            throw GameException.conflict("GAME_TOURNAMENT_CLOSED", "赛事尚未开始或已结束");
+        }
+        if (match.startedAt() != null
+                || (!BracketPlanner.STATUS_READY.equals(match.status())
+                && !BracketPlanner.STATUS_PENDING.equals(match.status()))) {
+            throw GameException.conflict("GAME_MATCH_STARTED", "比赛已开始，不能改选剧本");
+        }
+        if (match.gameChooserUserId() == null
+                || !match.gameChooserUserId().equals(user.userId())) {
+            throw GameException.forbidden("只有高顺位选手拥有本场首局剧本选择权");
+        }
+        String normalized = resolveGameId(gameId, ArenaGames.RANDOM, "GAME_GAME_INVALID");
+        String selected = ArenaGames.isRandom(normalized)
+                ? ArenaGames.randomGame() : normalized;
+        if (matches.updateFirstGame(matchId, selected) == 0) {
+            throw GameException.conflict("GAME_MATCH_STARTED", "比赛已开始，不能改选剧本");
+        }
+        MatchRecord updated = matches.findById(matchId).orElse(match);
+        broadcastTournament(tournament);
+        log.info("赛事 {} 比赛 {} 首局剧本由 {} 改选为 {}",
+                tournament.id(), matchId, user.userId(), selected);
+        return matchView(updated, tournament);
     }
 
     public TournamentView get(String id) {
@@ -420,7 +459,7 @@ public class TournamentService {
         } else {
             bracketType = BracketPlanner.STAGE_LEAGUE;
             int leagueRounds = BracketPlanner.leagueRounds(count);
-            totalRounds = leagueRounds + 2;
+            totalRounds = leagueRounds + BracketPlanner.pagePlayoffRounds(Math.min(4, count));
             planned = count <= 5
                     ? BracketPlanner.planRoundRobin(tournament.id(), accepted, now)
                     : BracketPlanner.planSwissFirstRound(tournament.id(), accepted, now);
@@ -431,6 +470,7 @@ public class TournamentService {
         }
         for (MatchRecord match : planned) {
             matches.insertMatch(match);
+            ensureFirstGame(tournament.gameId(), match);
         }
         TournamentRecord started = tournaments.findById(tournament.id()).orElse(tournament);
         if (KIND_DUEL.equals(started.kind())) {
@@ -459,7 +499,9 @@ public class TournamentService {
         if (KIND_TOURNAMENT.equals(tournament.kind())
                 && !BracketPlanner.STATUS_BYE.equals(match.status())
                 && match.winnerUserId() != null) {
-            recordLeaderboard(tournament.gameId(), match, finalMatch);
+            String actualGameId = match.firstGameId() == null
+                    ? tournament.gameId() : match.firstGameId();
+            recordLeaderboard(actualGameId, match, finalMatch);
         }
 
         if (match.nextMatchId() != null && match.winnerUserId() != null) {
@@ -489,7 +531,7 @@ public class TournamentService {
         broadcastTournament(tournaments.findById(tournament.id()).orElse(tournament));
     }
 
-    /** 积分赛一轮全部结束后：生成/激活下一轮，或进入阶梯决赛。 */
+    /** 积分赛一轮全部结束后：生成/激活下一轮，或取前四进入页面淘汰赛。 */
     @Transactional
     public void advanceLeague(TournamentRecord tournament) {
         if (!"RUNNING".equals(tournament.status())
@@ -502,7 +544,9 @@ public class TournamentService {
         if (total == 0 || finished < total) {
             return;
         }
-        int leagueRounds = Math.max(1, tournament.totalRounds() - 2);
+        int qualifierCount = Math.min(4, tournaments.acceptedPlayers(tournament.id()).size());
+        int leagueRounds = Math.max(1, tournament.totalRounds()
+                - BracketPlanner.pagePlayoffRounds(qualifierCount));
 
         if (current < leagueRounds) {
             int nextRound = current + 1;
@@ -519,42 +563,56 @@ public class TournamentService {
             return;
         }
 
-        List<TournamentPlayerRecord> topThree = standings(tournament.id()).stream()
-                .limit(3)
+        List<TournamentPlayerRecord> qualifiers = standings(tournament.id()).stream()
+                .limit(qualifierCount)
                 .map(Standing::player)
                 .toList();
-        if (topThree.size() < 3) {
-            finishWithoutLadder(tournament, topThree);
+        if (qualifiers.size() < 3) {
+            finishWithoutLadder(tournament, qualifiers);
             return;
         }
-        int challengeRound = current + 1;
-        if (tournaments.startLadder(tournament.id(), leagueRounds + 2, challengeRound, current) == 0) {
+        int firstRound = current + 1;
+        int totalRounds = current + BracketPlanner.pagePlayoffRounds(qualifiers.size());
+        if (tournaments.startPagePlayoff(
+                tournament.id(), totalRounds, firstRound, current) == 0) {
             return;
         }
-        for (MatchRecord match : BracketPlanner.planLadder(
-                tournament.id(), topThree, challengeRound, System.currentTimeMillis())) {
+        for (MatchRecord match : BracketPlanner.planPagePlayoff(
+                tournament.id(), qualifiers, firstRound, System.currentTimeMillis())) {
             matches.insertMatch(match);
+            ensureFirstGame(tournament.gameId(), match);
         }
-        TournamentRecord ladder = tournaments.findById(tournament.id()).orElse(tournament);
-        broadcastTournament(ladder);
-        log.info("赛事 {} 进入阶梯决赛：{} / {} / {}",
-                ladder.id(), topThree.get(0).nickname(), topThree.get(1).nickname(),
-                topThree.get(2).nickname());
+        TournamentRecord pagePlayoff = tournaments.findById(tournament.id()).orElse(tournament);
+        broadcastTournament(pagePlayoff);
+        log.info("赛事 {} 进入页面淘汰赛：{} / {} / {} / {}",
+                pagePlayoff.id(), qualifiers.get(0).nickname(),
+                qualifiers.size() > 1 ? qualifiers.get(1).nickname() : "-",
+                qualifiers.size() > 2 ? qualifiers.get(2).nickname() : "-",
+                qualifiers.size() > 3 ? qualifiers.get(3).nickname() : "-");
     }
 
-    /** 把已具备双方、仍为 PENDING 的淘汰/阶梯对阵激活；并同步当前轮次展示。 */
+    /** 把已具备双方、仍为 PENDING 的淘汰/页面淘汰对阵激活；并同步当前轮次展示。 */
     @Transactional
     public void activatePendingMatches(TournamentRecord tournament) {
         List<MatchRecord> all = matches.listByTournament(tournament.id());
         boolean changed = false;
         for (MatchRecord match : all) {
+            if (BracketPlanner.STATUS_BYE.equals(match.status())
+                    || "FINISHED".equals(match.status())) {
+                continue;
+            }
+            if (match.firstGameId() == null) {
+                ensureFirstGame(tournament.gameId(), match);
+                changed = true;
+            }
             if (BracketPlanner.STATUS_PENDING.equals(match.status())
                     && match.player1UserId() != null && match.player2UserId() != null) {
                 matches.updateStatus(match.id(), BracketPlanner.STATUS_READY);
                 changed = true;
             }
         }
-        if (BracketPlanner.STAGE_KNOCKOUT.equals(tournament.bracketType())) {
+        if (BracketPlanner.STAGE_KNOCKOUT.equals(tournament.bracketType())
+                || BracketPlanner.STAGE_PAGE_PLAYOFF.equals(tournament.bracketType())) {
             int activeRound = all.stream()
                     .filter(match -> !BracketPlanner.STATUS_BYE.equals(match.status())
                             && !"FINISHED".equals(match.status()))
@@ -585,18 +643,23 @@ public class TournamentService {
                 tournament.bracketType(), tournament.status(), tournament.creatorUserId(),
                 tournament.creatorNickname(), tournament.targetPlayers(), tournament.inviteDeadline(),
                 tournament.currentRound(), tournament.totalRounds(), tournament.championUserId(),
-                tournament.championNickname(), tournament.createdAt(), tournament.startedAt(),
+                tournament.championNickname(), tournament.runnerUpUserId(),
+                tournament.runnerUpNickname(), tournament.createdAt(), tournament.startedAt(),
                 tournament.finishedAt(), players, views, tournament.blindLayout());
     }
 
     private MatchView matchView(MatchRecord match, TournamentRecord tournament) {
+        String effectiveGameId = match.firstGameId() == null
+                ? tournament.gameId() : match.firstGameId();
         return new MatchView(
-                match.id(), match.tournamentId(), tournament.kind(), match.roundNo(), match.slotNo(),
-                match.stage(), match.status(), match.player1UserId(), match.player1Nickname(),
+                match.id(), match.tournamentId(), effectiveGameId, tournament.kind(),
+                match.roundNo(), match.slotNo(), match.stage(), match.status(),
+                match.player1UserId(), match.player1Nickname(),
                 match.player2UserId(), match.player2Nickname(), match.player1Score(),
                 match.player2Score(), match.winnerUserId(), match.nextMatchId(),
+                match.firstGameId(), match.gameChooserUserId(),
                 match.createdAt(), match.startedAt(), match.finishedAt(), null,
-                tournament.gameId(), tournament.blindLayout());
+                tournament.blindLayout());
     }
 
     private void recordLeaderboard(String gameId, MatchRecord match, boolean champion) {
@@ -618,17 +681,33 @@ public class TournamentService {
         if (championId == null) {
             championId = finalMatch.player1UserId();
         }
-        String championNickname = championId != null && championId.equals(finalMatch.player1UserId())
+        boolean championIsPlayer1 = championId != null
+                && championId.equals(finalMatch.player1UserId());
+        String championNickname = championIsPlayer1
                 ? finalMatch.player1Nickname() : finalMatch.player2Nickname();
-        tournaments.finish(tournament.id(), championId, championNickname, System.currentTimeMillis());
+        String runnerUpId = championIsPlayer1
+                ? finalMatch.player2UserId() : finalMatch.player1UserId();
+        String runnerUpNickname = championIsPlayer1
+                ? finalMatch.player2Nickname() : finalMatch.player1Nickname();
+        long now = System.currentTimeMillis();
+        tournaments.finish(tournament.id(), championId, championNickname,
+                runnerUpId, runnerUpNickname, now);
+        if (KIND_TOURNAMENT.equals(tournament.kind())) {
+            if (championId != null) {
+                stats.recordTitle(championId, championNickname, true);
+            }
+            if (runnerUpId != null) {
+                stats.recordTitle(runnerUpId, runnerUpNickname, false);
+            }
+        }
         TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);
         if (KIND_TOURNAMENT.equals(finished.kind())) {
             notifications.publishChampion(finished);
         }
         broadcastTournament(finished);
-        log.info("{} {} 结束，胜者 {}（{}）",
+        log.info("{} {} 结束，冠军 {}（{}），亚军 {}（{}）",
                 KIND_DUEL.equals(finished.kind()) ? "约战" : "赛事",
-                finished.id(), championNickname, championId);
+                finished.id(), championNickname, championId, runnerUpNickname, runnerUpId);
     }
 
     private void finishWithoutLadder(TournamentRecord tournament,
@@ -639,10 +718,21 @@ public class TournamentService {
             return;
         }
         TournamentPlayerRecord champion = ranked.get(0);
+        TournamentPlayerRecord runnerUp = ranked.size() > 1 ? ranked.get(1) : null;
+        long now = System.currentTimeMillis();
         tournaments.finish(tournament.id(), champion.userId(), champion.nickname(),
-                System.currentTimeMillis());
+                runnerUp == null ? null : runnerUp.userId(),
+                runnerUp == null ? null : runnerUp.nickname(), now);
+        if (KIND_TOURNAMENT.equals(tournament.kind())) {
+            stats.recordTitle(champion.userId(), champion.nickname(), true);
+            if (runnerUp != null) {
+                stats.recordTitle(runnerUp.userId(), runnerUp.nickname(), false);
+            }
+        }
         TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);
-        notifications.publishChampion(finished);
+        if (KIND_TOURNAMENT.equals(finished.kind())) {
+            notifications.publishChampion(finished);
+        }
         broadcastTournament(finished);
     }
 
@@ -748,13 +838,28 @@ public class TournamentService {
         }
     }
 
+    /** 新开对阵的首局剧本：系统随机赛事逐场抽取，固定剧本赛事直接使用配置值。 */
+    private static String resolveGame(String tournamentGameId) {
+        return ArenaGames.isRandom(tournamentGameId)
+                ? ArenaGames.randomGame() : tournamentGameId;
+    }
+
+    private void ensureFirstGame(String tournamentGameId, MatchRecord match) {
+        if (match.firstGameId() != null || BracketPlanner.STATUS_BYE.equals(match.status())) {
+            return;
+        }
+        matches.initFirstGame(match.id(), resolveGame(tournamentGameId),
+                match.gameChooserUserId());
+    }
+
     private static String pairKey(String first, String second) {
         return first.compareTo(second) < 0 ? first + "|" + second : second + "|" + first;
     }
 
     private static boolean isFinalMatch(TournamentRecord tournament, MatchRecord match) {
         if (!BracketPlanner.STAGE_KNOCKOUT.equals(match.stage())
-                && !BracketPlanner.STAGE_LADDER.equals(match.stage())) {
+                && !BracketPlanner.STAGE_LADDER.equals(match.stage())
+                && !BracketPlanner.STAGE_PAGE_PLAYOFF.equals(match.stage())) {
             return false;
         }
         return match.roundNo() == tournament.totalRounds();
@@ -774,12 +879,12 @@ public class TournamentService {
         return tournament;
     }
 
-    private static String resolveGameId(String raw, String errorCode) {
+    private static String resolveGameId(String raw, String defaultGameId, String errorCode) {
         if (raw == null || raw.isBlank()) {
-            return GameIds.HEATMAP_GOMOKU;
+            return defaultGameId;
         }
         String gameId = raw.strip().toLowerCase(Locale.ROOT);
-        if (!GameIds.ALL.contains(gameId)) {
+        if (!GameIds.ALL.contains(gameId) && !ArenaGames.ALL.contains(gameId)) {
             throw GameException.badRequest(errorCode, "不支持的游戏类型");
         }
         return gameId;
@@ -798,7 +903,8 @@ public class TournamentService {
     }
 
     private static String defaultTournamentName(String gameId) {
-        return GameIds.BLIND_XIANGQI.equals(gameId) ? "盲棋" : "热力五子棋";
+        return GameIds.BLIND_XIANGQI.equals(gameId)
+                ? "盲棋" : ArenaGames.defaultName(gameId);
     }
 
     private List<PlayerRef> normalizePlayers(List<PlayerRef> input) {

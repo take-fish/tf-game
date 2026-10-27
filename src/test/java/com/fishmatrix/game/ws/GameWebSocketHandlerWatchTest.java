@@ -9,9 +9,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchView;
+import com.fishmatrix.game.service.ExerciseService;
 import com.fishmatrix.game.service.GameChatService;
 import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
@@ -35,7 +37,9 @@ class GameWebSocketHandlerWatchTest {
                 matches,
                 mock(GameChatService.class),
                 registry,
-                new ObjectMapper());
+                new ObjectMapper(),
+                mock(ArenaService.class),
+                mock(ExerciseService.class));
         session = new GameSession(mock(WebSocketSession.class),
                 new GameIdentity(2, "u2", "Bob", "USER"));
     }
@@ -57,7 +61,7 @@ class GameWebSocketHandlerWatchTest {
     @Test
     void allowedWatchSubscribesAndSendsUpdate() {
         MatchView view = new MatchView(
-                "d1", "duel", "DUEL", 1, 1, "KNOCKOUT", "READY",
+                "d1", "duel", "heatmap-gomoku", "DUEL", 1, 1, "KNOCKOUT", "READY",
                 "u1", "Alice", "u2", "Bob", 0, 0, null, null,
                 1_000L, null, null, null);
         GameIdentity identity = session.getIdentity();

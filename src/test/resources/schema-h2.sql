@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS game_player_stat (
     losses INT NOT NULL DEFAULT 0,
     points INT NOT NULL DEFAULT 0,
     championships INT NOT NULL DEFAULT 0,
+    runner_ups INT NOT NULL DEFAULT 0,
     best_score BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMP(3) NOT NULL,
     PRIMARY KEY (user_id)
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS game_tournament (
     total_rounds INT NOT NULL DEFAULT 0,
     champion_user_id VARCHAR(64) NULL,
     champion_nickname VARCHAR(64) NULL,
+    runner_up_user_id VARCHAR(64) NULL,
+    runner_up_nickname VARCHAR(64) NULL,
     created_at TIMESTAMP(3) NOT NULL,
     started_at TIMESTAMP(3) NULL,
     finished_at TIMESTAMP(3) NULL,
@@ -74,6 +77,8 @@ CREATE TABLE IF NOT EXISTS game_match (
     player2_score INT NOT NULL DEFAULT 0,
     winner_user_id VARCHAR(64) NULL,
     next_match_id VARCHAR(36) NULL,
+    first_game_id VARCHAR(32) NULL,
+    game_chooser_user_id VARCHAR(64) NULL,
     created_at TIMESTAMP(3) NOT NULL,
     started_at TIMESTAMP(3) NULL,
     finished_at TIMESTAMP(3) NULL,
@@ -84,17 +89,22 @@ CREATE TABLE IF NOT EXISTS game_match (
 CREATE TABLE IF NOT EXISTS game_round (
     id VARCHAR(36) NOT NULL,
     match_id VARCHAR(36) NOT NULL,
+    game_id VARCHAR(32) NOT NULL DEFAULT 'heatmap-gomoku',
     game_no INT NOT NULL,
     status VARCHAR(16) NOT NULL,
     black_user_id VARCHAR(64) NOT NULL,
     white_user_id VARCHAR(64) NOT NULL,
-    turn_user_id VARCHAR(64) NOT NULL,
+    attacker_user_id VARCHAR(64) NULL,
+    turn_user_id VARCHAR(64) NULL,
     winner_user_id VARCHAR(64) NULL,
     move_count INT NOT NULL DEFAULT 0,
     last_move_at TIMESTAMP(3) NOT NULL,
     rest_until TIMESTAMP(3) NULL,
     ready_user_ids VARCHAR(512) NOT NULL DEFAULT '',
+    state_json CLOB NULL,
+    state_version INT NOT NULL DEFAULT 0,
     started_at TIMESTAMP(3) NOT NULL,
+    ends_at TIMESTAMP(3) NULL,
     finished_at TIMESTAMP(3) NULL,
     PRIMARY KEY (id),
     UNIQUE (match_id, game_no)
@@ -154,6 +164,65 @@ CREATE TABLE IF NOT EXISTS game_notification (
     PRIMARY KEY (id)
 );
 
+CREATE TABLE IF NOT EXISTS game_exercise_room (
+    id VARCHAR(36) NOT NULL,
+    room_code VARCHAR(12) NOT NULL,
+    mode VARCHAR(16) NOT NULL,
+    source VARCHAR(16) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    match_id VARCHAR(36) NULL,
+    owner_user_id VARCHAR(64) NULL,
+    max_players INT NOT NULL,
+    duration_seconds INT NOT NULL,
+    state_json CLOB NULL,
+    state_version INT NOT NULL DEFAULT 0,
+    winner_user_id VARCHAR(64) NULL,
+    winner_team VARCHAR(8) NULL,
+    finish_reason VARCHAR(255) NULL,
+    created_at TIMESTAMP(3) NOT NULL,
+    started_at TIMESTAMP(3) NULL,
+    finished_at TIMESTAMP(3) NULL,
+    PRIMARY KEY (id),
+    UNIQUE (room_code)
+);
+
+CREATE TABLE IF NOT EXISTS game_exercise_member (
+    room_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(64) NOT NULL,
+    nickname VARCHAR(64) NOT NULL,
+    team VARCHAR(8) NULL,
+    ready BOOLEAN NOT NULL DEFAULT FALSE,
+    bot BOOLEAN NOT NULL DEFAULT FALSE,
+    score INT NOT NULL DEFAULT 0,
+    kills INT NOT NULL DEFAULT 0,
+    deaths INT NOT NULL DEFAULT 0,
+    assists INT NOT NULL DEFAULT 0,
+    joined_at TIMESTAMP(3) NOT NULL,
+    left_at TIMESTAMP(3) NULL,
+    PRIMARY KEY (room_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS game_exercise_result (
+    id VARCHAR(36) NOT NULL,
+    room_id VARCHAR(36) NOT NULL,
+    mode VARCHAR(16) NOT NULL,
+    user_id VARCHAR(64) NOT NULL,
+    nickname VARCHAR(64) NOT NULL,
+    team VARCHAR(8) NULL,
+    rank_no INT NOT NULL,
+    score INT NOT NULL DEFAULT 0,
+    kills INT NOT NULL DEFAULT 0,
+    deaths INT NOT NULL DEFAULT 0,
+    assists INT NOT NULL DEFAULT 0,
+    winner BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP(3) NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_exercise_room_status ON game_exercise_room (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_exercise_room_match ON game_exercise_room (match_id);
+CREATE INDEX IF NOT EXISTS idx_exercise_result_time ON game_exercise_result (created_at);
+CREATE INDEX IF NOT EXISTS idx_exercise_result_user ON game_exercise_result (user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_player_points ON game_player_stat (points, wins, championships);
 CREATE INDEX IF NOT EXISTS idx_game_player_points ON game_player_game_stat (game_id, points, wins, championships);
 CREATE INDEX IF NOT EXISTS idx_tournament_status ON game_tournament (status, created_at);
@@ -164,5 +233,6 @@ CREATE INDEX IF NOT EXISTS idx_match_tournament ON game_match (tournament_id, ro
 CREATE INDEX IF NOT EXISTS idx_match_player ON game_match (player1_user_id, player2_user_id);
 CREATE INDEX IF NOT EXISTS idx_round_match ON game_round (match_id);
 CREATE INDEX IF NOT EXISTS idx_blind_piece_round ON game_blind_piece (round_id, alive);
+CREATE INDEX IF NOT EXISTS idx_round_game_status ON game_round (game_id, status);
 CREATE INDEX IF NOT EXISTS idx_chat_room ON game_chat_message (tournament_id, match_id, channel, created_at);
 CREATE INDEX IF NOT EXISTS idx_notification_time ON game_notification (created_at);

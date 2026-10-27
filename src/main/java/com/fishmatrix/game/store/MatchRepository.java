@@ -35,13 +35,15 @@ public class MatchRepository {
                     (id, tournament_id, round_no, slot_no, stage, status,
                      player1_user_id, player1_nickname, player2_user_id, player2_nickname,
                      player1_score, player2_score, winner_user_id, next_match_id,
+                     first_game_id, game_chooser_user_id,
                      created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 match.id(), match.tournamentId(), match.roundNo(), match.slotNo(), match.stage(),
                 match.status(), match.player1UserId(), match.player1Nickname(),
                 match.player2UserId(), match.player2Nickname(), match.player1Score(),
                 match.player2Score(), match.winnerUserId(), match.nextMatchId(),
+                match.firstGameId(), match.gameChooserUserId(),
                 SqlTime.ts(match.createdAt()), SqlTime.ts(match.startedAt()),
                 SqlTime.ts(match.finishedAt()));
     }
@@ -111,15 +113,36 @@ public class MatchRepository {
                 """, ROUND_MAPPER, SqlTime.ts(now));
     }
 
-    /** 正在对局的小局，用于每步 30 秒超时判定。 */
+    /** 正在对局的小局，用于每步 30 秒超时判定；竞技场小局没有轮次，不参与落子超时。 */
     public List<RoundRecord> listRunningRounds() {
         return jdbc.query("""
-                SELECT * FROM game_round WHERE status = 'RUNNING' ORDER BY last_move_at ASC
+                SELECT * FROM game_round
+                 WHERE status = 'RUNNING' AND turn_user_id IS NOT NULL
+                 ORDER BY last_move_at ASC
                 """, ROUND_MAPPER);
     }
 
     public void updateStatus(String matchId, String status) {
         jdbc.update("UPDATE game_match SET status = ? WHERE id = ?", status, matchId);
+    }
+
+    /** 首局剧本只允许在开赛前修改；条件更新防止比赛开始后被覆盖。 */
+    public int updateFirstGame(String matchId, String gameId) {
+        return jdbc.update("""
+                UPDATE game_match
+                   SET first_game_id = ?
+                 WHERE id = ? AND status IN ('PENDING', 'READY')
+                """, gameId, matchId);
+    }
+
+    /** 服务端补抽首局剧本：仅当尚未设置时写入，避免覆盖选手已选结果。 */
+    public int initFirstGame(String matchId, String gameId, String chooserUserId) {
+        return jdbc.update("""
+                UPDATE game_match
+                   SET first_game_id = COALESCE(first_game_id, ?),
+                       game_chooser_user_id = COALESCE(game_chooser_user_id, ?)
+                 WHERE id = ? AND status IN ('PENDING', 'READY')
+                """, gameId, chooserUserId, matchId);
     }
 
     public int start(String matchId, long now) {
@@ -202,15 +225,38 @@ public class MatchRepository {
     public void insertRound(RoundRecord round) {
         jdbc.update("""
                 INSERT INTO game_round
-                    (id, match_id, game_no, status, black_user_id, white_user_id, turn_user_id,
-                     winner_user_id, move_count, last_move_at, rest_until, ready_user_ids,
-                     started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, match_id, game_id, game_no, status, black_user_id, white_user_id,
+                     attacker_user_id, turn_user_id, winner_user_id, move_count, last_move_at,
+                     rest_until, ready_user_ids, state_json, state_version, started_at, ends_at,
+                     finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                round.id(), round.matchId(), round.gameNo(), round.status(),
-                round.blackUserId(), round.whiteUserId(), round.turnUserId(), round.winnerUserId(),
-                round.moveCount(), SqlTime.ts(round.lastMoveAt()), SqlTime.ts(round.restUntil()),
-                round.readyUserIds(), SqlTime.ts(round.startedAt()), SqlTime.ts(round.finishedAt()));
+                round.id(), round.matchId(), round.gameId(), round.gameNo(), round.status(),
+                round.blackUserId(), round.whiteUserId(), round.attackerUserId(),
+                round.turnUserId(), round.winnerUserId(), round.moveCount(),
+                SqlTime.ts(round.lastMoveAt()), SqlTime.ts(round.restUntil()),
+                round.readyUserIds(), round.stateJson(), round.stateVersion(),
+                SqlTime.ts(round.startedAt()), SqlTime.ts(round.endsAt()),
+                SqlTime.ts(round.finishedAt()));
+    }
+
+    /** 竞技场每秒保存一次权威状态；只允许 RUNNING 小局写入。 */
+    public void updateArenaState(String roundId, String stateJson, int stateVersion, int actionCount) {
+        jdbc.update("""
+                UPDATE game_round
+                   SET state_json = ?, state_version = ?,
+                       move_count = GREATEST(move_count, ?)
+                 WHERE id = ? AND status = 'RUNNING'
+                """, stateJson, stateVersion, actionCount, roundId);
+    }
+
+    /** 服务重启后恢复仍在对局的竞技场小局。 */
+    public List<RoundRecord> listRunningArenaRounds(String gomokuGameId) {
+        return jdbc.query("""
+                SELECT * FROM game_round
+                 WHERE status = 'RUNNING' AND game_id <> ?
+                 ORDER BY started_at ASC
+                """, ROUND_MAPPER, gomokuGameId);
     }
 
     public Optional<RoundRecord> findRound(String roundId) {
@@ -334,24 +380,31 @@ public class MatchRepository {
                 rs.getString("next_match_id"),
                 SqlTime.millis(rs, "created_at"),
                 SqlTime.nullableMillis(rs, "started_at"),
-                SqlTime.nullableMillis(rs, "finished_at"));
+                SqlTime.nullableMillis(rs, "finished_at"),
+                rs.getString("first_game_id"),
+                rs.getString("game_chooser_user_id"));
     }
 
     private static RoundRecord mapRound(ResultSet rs) throws SQLException {
         return new RoundRecord(
                 rs.getString("id"),
                 rs.getString("match_id"),
+                rs.getString("game_id"),
                 rs.getInt("game_no"),
                 rs.getString("status"),
                 rs.getString("black_user_id"),
                 rs.getString("white_user_id"),
+                rs.getString("attacker_user_id"),
                 rs.getString("turn_user_id"),
                 rs.getString("winner_user_id"),
                 rs.getInt("move_count"),
                 SqlTime.millis(rs, "last_move_at"),
                 SqlTime.nullableMillis(rs, "rest_until"),
                 rs.getString("ready_user_ids"),
+                rs.getString("state_json"),
+                rs.getInt("state_version"),
                 SqlTime.millis(rs, "started_at"),
+                SqlTime.nullableMillis(rs, "ends_at"),
                 SqlTime.nullableMillis(rs, "finished_at"));
     }
 }

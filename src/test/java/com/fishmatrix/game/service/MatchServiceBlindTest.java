@@ -16,6 +16,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
 import com.fishmatrix.game.model.BlindColor;
 import com.fishmatrix.game.model.BlindPieceType;
@@ -62,12 +63,13 @@ class MatchServiceBlindTest {
                 "u1", "甲", "u2", "乙", 0, 0, null, null,
                 1_000L, null, null);
         RoundRecord round = new RoundRecord(
-                "r1", "m1", 1, "RUNNING", "u1", "u2", "u1", null,
-                0, 1_000L, null, "", 1_000L, null);
+                "r1", "m1", "blind-xiangqi", 1, "RUNNING",
+                "u1", "u2", null, "u1", null,
+                0, 1_000L, null, "", null, 0, 1_000L, null, null);
         TournamentRecord tournament = new TournamentRecord(
                 "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO1", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 1, null, null,
-                1_000L, 2_000L, null, "STANDARD_SHUFFLE");
+                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE");
 
         when(matches.findById("m1")).thenReturn(Optional.of(match));
         when(matches.latestRound("m1")).thenReturn(Optional.of(round));
@@ -91,7 +93,8 @@ class MatchServiceBlindTest {
         service = new MatchService(
                 matches, tournaments, blindPieces, registry,
                 mock(GameNotificationService.class), publisher,
-                new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"));
+                new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"),
+                mock(ArenaService.class), mock(ExerciseService.class));
     }
 
     @Test
@@ -191,7 +194,7 @@ class MatchServiceBlindTest {
     }
 
     @Test
-    void facingGeneralsRecordsDrawAndRestsForNextGame() {
+    void facingGeneralsFallsBackToHigherSeedAndRestsForNextGame() {
         when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
                 new Piece("p1", BlindColor.RED, BlindPieceType.GENERAL, 4, 8, true),
                 new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 1, false),
@@ -200,8 +203,9 @@ class MatchServiceBlindTest {
         service.revealPiece(identity("u1"), "m1", 4, 1);
 
         verify(blindPieces).reveal("r1", "p2");
-        verify(matches).restAfterGame(eq("r1"), isNull(), anyLong(), anyLong());
-        verify(matches).updateScore("m1", 0, 0);
+        // 赛事只认输赢：和棋按种子顺位判胜，默认 1 号位 u1 晋级本局。
+        verify(matches).restAfterGame(eq("r1"), eq("u1"), anyLong(), anyLong());
+        verify(matches).updateScore("m1", 1, 0);
         verify(matches, never()).finishIfRunning(
                 anyString(), anyString(), anyInt(), anyInt(), anyLong());
         verify(publisher, never()).publishEvent(any(MatchFinishedEvent.class));
@@ -209,7 +213,7 @@ class MatchServiceBlindTest {
         assertThat(frame("blind_action")).containsEntry("result", "DRAW");
         Map<String, Object> rest = frame("match_rest");
         assertThat(rest)
-                .containsEntry("player1Score", 0)
+                .containsEntry("player1Score", 1)
                 .containsEntry("player2Score", 0);
     }
 
@@ -218,7 +222,7 @@ class MatchServiceBlindTest {
         when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
                 "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO3", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 3, null, null,
-                1_000L, 2_000L, null, "STANDARD_SHUFFLE")));
+                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE")));
         when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
                 new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
                 new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
@@ -240,8 +244,9 @@ class MatchServiceBlindTest {
     @SuppressWarnings("unchecked")
     void startNextGameCreatesFreshBlindRoundAndAlternatesFirstPlayer() {
         RoundRecord rest = new RoundRecord(
-                "r1", "m1", 1, "REST", "u1", "u2", "u2", null,
-                5, 1_000L, 2_000L, "", 1_000L, null);
+                "r1", "m1", "blind-xiangqi", 1, "REST",
+                "u1", "u2", null, "u2", null,
+                5, 1_000L, 2_000L, "", null, 0, 1_000L, null, null);
         when(matches.latestRound("m1")).thenReturn(Optional.of(rest));
         when(matches.finishRestRound(eq("r1"), anyLong())).thenReturn(1);
         when(registry.byUser(anyString())).thenReturn(List.of());
@@ -302,7 +307,7 @@ class MatchServiceBlindTest {
         when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
                 "t1", "热力五子棋", "heatmap-gomoku", "TOURNAMENT", "BO1", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 1, null, null,
-                1_000L, 2_000L, null, null)));
+                null, null, 1_000L, 2_000L, null, null)));
 
         assertThatThrownBy(() -> service.revealPiece(identity("u1"), "m1", 4, 4))
                 .isInstanceOf(GameException.class)

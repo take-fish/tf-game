@@ -6,8 +6,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchView;
+import com.fishmatrix.game.service.ExerciseService;
 import com.fishmatrix.game.service.GameChatService;
 import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
@@ -37,7 +39,9 @@ class GameWebSocketHandlerBlindTest {
                 matches,
                 mock(GameChatService.class),
                 registry,
-                new ObjectMapper());
+                new ObjectMapper(),
+                mock(ArenaService.class),
+                mock(ExerciseService.class));
     }
 
     @Test

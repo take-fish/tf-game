@@ -2,10 +2,14 @@ package com.fishmatrix.game.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishmatrix.common.error.ApiException;
+import com.fishmatrix.game.arena.ArenaAction;
+import com.fishmatrix.game.arena.ArenaService;
+import com.fishmatrix.game.arena.ExerciseInput;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.model.WsInbound;
+import com.fishmatrix.game.service.ExerciseService;
 import com.fishmatrix.game.service.GameChatService;
 import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
@@ -36,18 +40,24 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final GameChatService chats;
     private final GameSessionRegistry registry;
     private final ObjectMapper objectMapper;
+    private final ArenaService arena;
+    private final ExerciseService exercise;
 
     public GameWebSocketHandler(
             TournamentService tournaments,
             MatchService matches,
             GameChatService chats,
             GameSessionRegistry registry,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ArenaService arena,
+            ExerciseService exercise) {
         this.tournaments = tournaments;
         this.matches = matches;
         this.chats = chats;
         this.registry = registry;
         this.objectMapper = objectMapper;
+        this.arena = arena;
+        this.exercise = exercise;
     }
 
     @Override
@@ -112,6 +122,30 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 case "resign" -> registry.send(session, Map.of(
                         "type", "match_update",
                         "match", matches.resign(session.getIdentity(), requireMatchId(inbound))));
+                case "choose_game" -> registry.send(session, Map.of(
+                        "type", "match_update",
+                        "match", tournaments.chooseGame(
+                                session.getIdentity(), requireMatchId(inbound),
+                                inbound.gameId())));
+                case "arena_action" -> arena.action(
+                        session.getIdentity(), requireMatchId(inbound), new ArenaAction(
+                                inbound.action(), inbound.target(), inbound.skill(),
+                                inbound.cell(), inbound.actionId()));
+                case "exercise_join" -> exercise.join(
+                        session.getIdentity(), requireRoomKey(inbound));
+                case "exercise_leave" -> exercise.leave(
+                        session.getIdentity(), requireRoomKey(inbound));
+                case "exercise_ready" -> exercise.ready(
+                        session.getIdentity(), requireRoomKey(inbound));
+                case "exercise_rooms" -> registry.send(session, Map.of(
+                        "type", "exercise_rooms",
+                        "rooms", exercise.listRooms(session.getIdentity())));
+                case "exercise_input" -> exercise.input(
+                        session.getIdentity(), requireRoomKey(inbound),
+                        new ExerciseInput(
+                                inbound.inputSeq(), inbound.moveX(), inbound.moveY(),
+                                inbound.aim(), inbound.fire(), inbound.skill(),
+                                inbound.skillX(), inbound.skillY()));
                 case "chat" -> chats.send(session.getIdentity(), new SendChatRequest(
                         inbound.tournamentId(), inbound.matchId(), inbound.channel(),
                         inbound.toUserId(), inbound.content()));
@@ -134,6 +168,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
         if (registry.byUser(removed.getUserId()).isEmpty()) {
             matches.onDisconnect(removed.getUserId());
+            exercise.onDisconnect(removed.getUserId());
         }
     }
 
@@ -185,6 +220,17 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             throw ApiException.badRequest("GAME_FRAME_INVALID", "缺少比赛 ID");
         }
         return matchId;
+    }
+
+    private static String requireRoomKey(WsInbound inbound) {
+        String key = inbound.roomId();
+        if (key == null || key.isBlank()) {
+            key = inbound.roomCode();
+        }
+        if (key == null || key.isBlank()) {
+            throw ApiException.badRequest("GAME_FRAME_INVALID", "缺少巡检房间 ID");
+        }
+        return key;
     }
 
     private void sendError(GameSession session, String code, String message) {

@@ -81,7 +81,7 @@ class TournamentServiceBlindTest {
     @Test
     void gomokuIgnoresBlindLayout() {
         service.create(identity("u1"), new CreateTournamentRequest(
-                null, "BO1", players(), null, "FULL_RANDOM"));
+                null, "BO1", players(), "heatmap-gomoku", "FULL_RANDOM"));
 
         ArgumentCaptor<TournamentRecord> captor = ArgumentCaptor.forClass(TournamentRecord.class);
         verify(tournaments).insert(captor.capture());

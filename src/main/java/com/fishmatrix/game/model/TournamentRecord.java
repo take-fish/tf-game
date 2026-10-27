@@ -16,12 +16,14 @@ public record TournamentRecord(
         int totalRounds,
         String championUserId,
         String championNickname,
+        String runnerUpUserId,
+        String runnerUpNickname,
         long createdAt,
         Long startedAt,
         Long finishedAt,
         String blindLayout) {
 
-    /** 兼容旧调用：非盲棋赛事没有摆法。 */
+    /** 兼容旧调用：没有冠亚军扩展字段与盲棋摆法。 */
     public TournamentRecord(
             String id,
             String name,
@@ -44,6 +46,6 @@ public record TournamentRecord(
         this(id, name, gameId, kind, format, bracketType, status,
                 creatorUserId, creatorNickname, targetPlayers, inviteDeadline,
                 currentRound, totalRounds, championUserId, championNickname,
-                createdAt, startedAt, finishedAt, null);
+                null, null, createdAt, startedAt, finishedAt, null);
     }
 }
