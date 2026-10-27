@@ -88,6 +88,65 @@ class BracketPlannerTest {
     }
 
     @Test
+    void pagePlayoffPairsThirdAgainstFourthThenSecondThenFirst() {
+        List<MatchRecord> matches =
+                BracketPlanner.planPagePlayoff("t1", players(4), 3, 1_000L);
+
+        assertThat(matches).hasSize(3);
+        MatchRecord opener = matches.get(0);
+        MatchRecord challenge = matches.get(1);
+        MatchRecord finalMatch = matches.get(2);
+
+        assertThat(opener.stage()).isEqualTo(BracketPlanner.STAGE_PAGE_PLAYOFF);
+        assertThat(opener.roundNo()).isEqualTo(3);
+        assertThat(opener.status()).isEqualTo(BracketPlanner.STATUS_READY);
+        assertThat(opener.player1UserId()).isEqualTo("u3");
+        assertThat(opener.player2UserId()).isEqualTo("u4");
+        // 三号拥有首场选图权，四号没有。
+        assertThat(opener.gameChooserUserId()).isEqualTo("u3");
+        assertThat(opener.nextMatchId()).isEqualTo(challenge.id());
+
+        assertThat(challenge.roundNo()).isEqualTo(4);
+        assertThat(challenge.status()).isEqualTo(BracketPlanner.STATUS_PENDING);
+        assertThat(challenge.player1UserId()).isEqualTo("u2");
+        assertThat(challenge.player2UserId()).isNull();
+        assertThat(challenge.gameChooserUserId()).isEqualTo("u2");
+        assertThat(challenge.nextMatchId()).isEqualTo(finalMatch.id());
+
+        assertThat(finalMatch.roundNo()).isEqualTo(5);
+        assertThat(finalMatch.status()).isEqualTo(BracketPlanner.STATUS_PENDING);
+        assertThat(finalMatch.player1UserId()).isEqualTo("u1");
+        assertThat(finalMatch.player2UserId()).isNull();
+        assertThat(finalMatch.gameChooserUserId()).isEqualTo("u1");
+        assertThat(finalMatch.nextMatchId()).isNull();
+        // 首局剧本由服务层抽签后写入，编排阶段统一为空。
+        assertThat(matches).allMatch(match -> match.firstGameId() == null);
+    }
+
+    @Test
+    void pagePlayoffWithThreeQualifiersStartsThirdAgainstSecond() {
+        List<MatchRecord> matches =
+                BracketPlanner.planPagePlayoff("t1", players(3), 4, 1_000L);
+
+        assertThat(matches).hasSize(2);
+        MatchRecord opener = matches.get(0);
+        MatchRecord finalMatch = matches.get(1);
+
+        assertThat(opener.player1UserId()).isEqualTo("u3");
+        assertThat(opener.player2UserId()).isEqualTo("u2");
+        assertThat(opener.gameChooserUserId()).isEqualTo("u3");
+        assertThat(opener.roundNo()).isEqualTo(4);
+        assertThat(opener.nextMatchId()).isEqualTo(finalMatch.id());
+
+        assertThat(finalMatch.player1UserId()).isEqualTo("u1");
+        assertThat(finalMatch.player2UserId()).isNull();
+        assertThat(finalMatch.gameChooserUserId()).isEqualTo("u1");
+        assertThat(finalMatch.roundNo()).isEqualTo(5);
+        assertThat(BracketPlanner.pagePlayoffRounds(3)).isEqualTo(2);
+        assertThat(BracketPlanner.pagePlayoffRounds(4)).isEqualTo(3);
+    }
+
+    @Test
     void leagueRoundCountsMatchPlayerCount() {
         assertThat(BracketPlanner.leagueRounds(3)).isEqualTo(3);
         assertThat(BracketPlanner.leagueRounds(4)).isEqualTo(3);

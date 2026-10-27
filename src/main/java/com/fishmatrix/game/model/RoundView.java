@@ -1,16 +1,20 @@
 package com.fishmatrix.game.model;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * 小局公开视图。盲棋额外下发公开棋盘；firstUserId 为先手（盲棋中即红方）。
+ * 小局视图。五子棋返回 moves，盲棋额外返回公开棋盘与先后手；
+ * 实时竞技场返回 state 与 seq，供前端断线重连直接恢复。
  */
 public record RoundView(
         String id,
+        String gameId,
         int gameNo,
         String status,
         String blackUserId,
         String whiteUserId,
+        String attackerUserId,
         String turnUserId,
         String winnerUserId,
         int moveCount,
@@ -18,7 +22,10 @@ public record RoundView(
         Long restUntil,
         List<String> readyUserIds,
         long startedAt,
+        Long endsAt,
         Long finishedAt,
+        int seq,
+        Map<String, Object> state,
         List<MoveView> moves,
         List<BlindPieceView> blindBoard,
         String firstUserId,

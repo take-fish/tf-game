@@ -55,7 +55,9 @@ public class RedisLeaderboardStore implements LeaderboardStore {
                     rank++,
                     tuple.getValue(),
                     nickname == null ? "anonymous" : nickname,
-                    tuple.getScore() == null ? 0 : tuple.getScore().longValue()));
+                    0,
+                    0,
+                    tuple.getScore() == null ? 0 : (int) tuple.getScore().longValue()));
         }
         return entries;
     }

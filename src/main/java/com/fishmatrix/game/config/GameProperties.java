@@ -37,7 +37,7 @@ public record GameProperties(
             restSeconds = 60;
         }
         if (moveTimeoutSeconds <= 0) {
-            moveTimeoutSeconds = 30;
+            moveTimeoutSeconds = 60;
         }
         if (disconnectTimeoutSeconds <= 0) {
             disconnectTimeoutSeconds = 60;

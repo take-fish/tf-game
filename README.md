@@ -19,7 +19,7 @@ FishMatrix（摸鱼矩阵）游戏服务：五子棋赛事编排、实时对战�
 
 - 创建时选择 `BO1` / `BO3` / `BO5`；`BO3`/`BO5` 每小局结束休息 60 秒，休息期间双方可点击“立即开始”，也可观战其他比赛。
 - 邀请 5 分钟未响应视为拒绝；接受人数不足 2 人时赛事取消。
-- 五子棋：15×15、黑先无禁手、每局换先；每步 30 秒超时判负，断线 60 秒判负，支持认输。
+- 五子棋：15×15、黑先无禁手、每局换先；每步 60 秒超时判负，断线 60 秒判负，支持认输。
 - 最终决赛首局真正开始时，向全站推送 `The final begins - {赛事名称}！`；赛事结束时推送 `The champion of {赛事名称} is {nickname}！！！`。赛事名称取创建时填写的名称。
 - 删除为软删除：创建者或 `ADMIN` 可删除未处于 `RUNNING` 的赛事；删除后大厅、邀请、详情与运行中调度都不再返回，历史数据保留在库中（`deleted_at`）。
 
@@ -68,7 +68,7 @@ FishMatrix（摸鱼矩阵）游戏服务：五子棋赛事编排、实时对战�
 | `GAME_MIN_PLAYERS` / `GAME_MAX_PLAYERS` | `2` / `16` | 创建赛事人数范围 |
 | `GAME_INVITE_TIMEOUT_SECONDS` | `300` | 邀请有效期 |
 | `GAME_REST_SECONDS` | `60` | 小局休息时长 |
-| `GAME_MOVE_TIMEOUT_SECONDS` | `30` | 每步限时 |
+| `GAME_MOVE_TIMEOUT_SECONDS` | `60` | 每步限时 |
 | `GAME_DISCONNECT_TIMEOUT_SECONDS` | `60` | 断线判负 |
 | `GAME_WS_TICKET_TTL_SECONDS` | `60` | WS ticket 有效期 |
 | `GAME_NOTIFICATION_TTL_SECONDS` | `600` | 通知保留时长 |

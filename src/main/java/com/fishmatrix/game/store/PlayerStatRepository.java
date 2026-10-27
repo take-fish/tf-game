@@ -7,11 +7,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * 排行榜数据：game_player_stat 为综合榜；game_player_game_stat 按游戏拆分的棋类榜。
- * 五子棋/盲棋按胜场与冠军累计积分，打砖块按最高分折算综合积分。
+ * 排行榜数据：game_player_stat 为综合大榜；game_player_game_stat 按游戏拆分的棋类榜。
+ * 大榜只认赛事头衔：冠军 30 分、亚军 10 分；对局内得分仅用于单场判定，不进入大榜。
+ * matches/wins/losses/best_score 继续保留作辅助统计与分游戏榜展示。
  */
 @Repository
 public class PlayerStatRepository {
+
+    public static final int CHAMPION_POINTS = 30;
+    public static final int RUNNER_UP_POINTS = 10;
 
     private final JdbcTemplate jdbc;
 
@@ -30,8 +34,9 @@ public class PlayerStatRepository {
         try {
             jdbc.update("""
                     INSERT INTO game_player_stat
-                        (user_id, nickname, matches, wins, losses, points, championships, best_score, updated_at)
-                    VALUES (?, ?, 0, 0, 0, 0, 0, 0, ?)
+                        (user_id, nickname, matches, wins, losses, points, championships,
+                         runner_ups, best_score, updated_at)
+                    VALUES (?, ?, 0, 0, 0, 0, 0, 0, 0, ?)
                     """, userId, nickname, SqlTime.ts(now));
         } catch (DuplicateKeyException ignored) {
             // 并发首次写入：另一个请求已经插入，更新昵称即可。
@@ -41,26 +46,40 @@ public class PlayerStatRepository {
         }
     }
 
-    /** 一场完整比赛结束后记一次参与；冠军额外奖励。 */
+    /** 赛事结束时一次性记录头衔；积分只由冠军/亚军折算，不按场次累加。 */
+    public void recordTitle(String userId, String nickname, boolean champion) {
+        ensure(userId, nickname);
+        int pointDelta = champion ? CHAMPION_POINTS : RUNNER_UP_POINTS;
+        jdbc.update("""
+                UPDATE game_player_stat
+                   SET championships = championships + ?,
+                       runner_ups = runner_ups + ?,
+                       points = points + ?,
+                       nickname = ?,
+                       updated_at = ?
+                 WHERE user_id = ?
+                """,
+                champion ? 1 : 0, champion ? 0 : 1, pointDelta,
+                nickname, SqlTime.ts(System.currentTimeMillis()), userId);
+    }
+
+    /** 保留对局统计，但不再给大榜加任何分数。 */
     public void recordMatch(String userId, String nickname, boolean win, boolean champion) {
         ensure(userId, nickname);
-        int points = (win ? 3 : 1) + (champion ? 10 : 0);
         jdbc.update("""
                 UPDATE game_player_stat
                    SET matches = matches + 1,
                        wins = wins + ?,
                        losses = losses + ?,
-                       points = points + ?,
-                       championships = championships + ?,
                        nickname = ?,
                        updated_at = ?
                  WHERE user_id = ?
                 """,
-                win ? 1 : 0, win ? 0 : 1, points, champion ? 1 : 0,
+                win ? 1 : 0, win ? 0 : 1,
                 nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
-    /** 棋类赛事按游戏分别记一次参与；冠军额外奖励。 */
+    /** 棋类赛事按游戏分别记一次参与；分游戏榜保留原有胜场积分与冠军奖励。 */
     public void recordGameMatch(String gameId, String userId, String nickname,
                                 boolean win, boolean champion) {
         ensureGame(gameId, userId, nickname);
@@ -102,17 +121,16 @@ public class PlayerStatRepository {
                 0L), gameId, safeLimit);
     }
 
-    /** 打砖块只保留最高分；每 100 分折算 1 点综合积分，只奖励首次刷新部分。 */
+    /** 打砖块只保留最高分，不折算大榜积分。 */
     public void recordBreakoutScore(String userId, String nickname, long score) {
         ensure(userId, nickname);
         long previous = bestScore(userId);
         long newBest = Math.max(previous, score);
-        long delta = Math.max(0, score / 100 - previous / 100);
         jdbc.update("""
                 UPDATE game_player_stat
-                   SET best_score = ?, points = points + ?, nickname = ?, updated_at = ?
+                   SET best_score = ?, nickname = ?, updated_at = ?
                  WHERE user_id = ?
-                """, newBest, delta, nickname, SqlTime.ts(System.currentTimeMillis()), userId);
+                """, newBest, nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
     public long bestScore(String userId) {
@@ -134,21 +152,17 @@ public class PlayerStatRepository {
     public List<LeaderboardEntry> top(int limit) {
         int safeLimit = Math.min(50, Math.max(1, limit));
         return jdbc.query("""
-                SELECT user_id, nickname, points, matches, wins, losses, championships, best_score
+                SELECT user_id, nickname, championships, runner_ups, points
                   FROM game_player_stat
-                 ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+                 ORDER BY points DESC, championships DESC, runner_ups DESC, updated_at ASC
                  LIMIT ?
                 """, (rs, rowNum) -> new LeaderboardEntry(
                 rowNum + 1L,
                 rs.getString("user_id"),
                 rs.getString("nickname"),
-                rs.getInt("points"),
-                rs.getInt("points"),
-                rs.getInt("matches"),
-                rs.getInt("wins"),
-                rs.getInt("losses"),
                 rs.getInt("championships"),
-                rs.getLong("best_score")), safeLimit);
+                rs.getInt("runner_ups"),
+                rs.getInt("points")), safeLimit);
     }
 
     public long rank(String userId) {
@@ -156,7 +170,8 @@ public class PlayerStatRepository {
                 SELECT position FROM (
                     SELECT user_id,
                            ROW_NUMBER() OVER (
-                               ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+                               ORDER BY points DESC, championships DESC,
+                                        runner_ups DESC, updated_at ASC
                            ) AS position
                       FROM game_player_stat
                 ) ranked

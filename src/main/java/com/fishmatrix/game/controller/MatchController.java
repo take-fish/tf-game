@@ -2,11 +2,13 @@ package com.fishmatrix.game.controller;
 
 import com.fishmatrix.common.auth.UserContext;
 import com.fishmatrix.game.model.ChatMessageView;
+import com.fishmatrix.game.model.ChooseGameRequest;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.service.GameChatService;
 import com.fishmatrix.game.service.MatchService;
+import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +25,13 @@ public class MatchController {
 
     private final MatchService matches;
     private final GameChatService chats;
+    private final TournamentService tournaments;
 
-    public MatchController(MatchService matches, GameChatService chats) {
+    public MatchController(MatchService matches, GameChatService chats,
+                           TournamentService tournaments) {
         this.matches = matches;
         this.chats = chats;
+        this.tournaments = tournaments;
     }
 
     @GetMapping("/active")
@@ -59,5 +64,12 @@ public class MatchController {
         MatchView match = matches.detailForUser(user, id);
         return chats.send(user, new SendChatRequest(
                 match.tournamentId(), id, request.channel(), request.toUserId(), request.content()));
+    }
+
+    /** 页面淘汰赛高顺位选手改选本场首局剧本。 */
+    @PostMapping("/{id}/game")
+    public MatchView chooseGame(@PathVariable String id, @RequestBody ChooseGameRequest request) {
+        GameIdentity user = GameIdentity.of(UserContext.require());
+        return tournaments.chooseGame(user, id, request == null ? null : request.gameId());
     }
 }
