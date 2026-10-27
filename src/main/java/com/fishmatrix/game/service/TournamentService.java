@@ -92,8 +92,9 @@ public class TournamentService {
         }
         String gameId = resolveGameId(request.gameId(), ArenaGames.RANDOM,
                 "GAME_TOURNAMENT_INVALID");
+        List<String> gamePool = resolveGamePool(gameId, request.gamePool());
         BlindLayout blindLayout = resolveBlindLayout(
-                gameId, request.blindLayout(), "GAME_TOURNAMENT_INVALID");
+                gameId, gamePool, request.blindLayout(), "GAME_TOURNAMENT_INVALID");
         String name = request.name() == null || request.name().isBlank()
                 ? defaultTournamentName(gameId) : request.name().strip();
         if (name.codePointCount(0, name.length()) > 32) {
@@ -116,7 +117,7 @@ public class TournamentService {
                 creator.userId(), creator.nickname(), refs.size(),
                 now + properties.inviteTimeoutSeconds() * 1000L,
                 0, 0, null, null, null, null, now, null, null,
-                blindLayout == null ? null : blindLayout.name());
+                blindLayout == null ? null : blindLayout.name(), gamePool);
         tournaments.insert(tournament);
 
         Set<String> invitedIds = new LinkedHashSet<>();
@@ -166,7 +167,7 @@ public class TournamentService {
         }
         String gameId = resolveGameId(request.gameId(), ArenaGames.GOMOKU, "GAME_DUEL_INVALID");
         BlindLayout blindLayout = resolveBlindLayout(
-                gameId, request.blindLayout(), "GAME_DUEL_INVALID");
+                gameId, List.of(), request.blindLayout(), "GAME_DUEL_INVALID");
         String opponentNickname = request.opponentNickname() == null
                 ? "" : request.opponentNickname().strip();
         if (opponentNickname.isEmpty()) {
@@ -191,7 +192,7 @@ public class TournamentService {
                 creator.userId(), creator.nickname(), 2,
                 now + properties.inviteTimeoutSeconds() * 1000L,
                 0, 0, null, null, null, null, now, null, null,
-                blindLayout == null ? null : blindLayout.name());
+                blindLayout == null ? null : blindLayout.name(), List.of());
         tournaments.insert(duel);
         tournaments.insertPlayer(new TournamentPlayerRecord(
                 id, creator.userId(), creator.nickname(), 1, "ACCEPTED", now, now));
@@ -263,8 +264,18 @@ public class TournamentService {
             throw GameException.forbidden("只有高顺位选手拥有本场首局剧本选择权");
         }
         String normalized = resolveGameId(gameId, ArenaGames.RANDOM, "GAME_GAME_INVALID");
-        String selected = ArenaGames.isRandom(normalized)
-                ? ArenaGames.randomGame() : normalized;
+        boolean series = ArenaGames.isRandom(tournament.gameId());
+        List<String> pool = enabledPool(tournament);
+        String selected;
+        if (ArenaGames.isRandom(normalized)) {
+            selected = ArenaGames.randomGame(pool);
+        } else {
+            if (series && !pool.contains(normalized)) {
+                throw GameException.badRequest("GAME_GAME_INVALID",
+                        "该游戏未在 S赛启用池中");
+            }
+            selected = normalized;
+        }
         if (matches.updateFirstGame(matchId, selected) == 0) {
             throw GameException.conflict("GAME_MATCH_STARTED", "比赛已开始，不能改选剧本");
         }
@@ -470,7 +481,7 @@ public class TournamentService {
         }
         for (MatchRecord match : planned) {
             matches.insertMatch(match);
-            ensureFirstGame(tournament.gameId(), match);
+            ensureFirstGame(tournament, match);
         }
         TournamentRecord started = tournaments.findById(tournament.id()).orElse(tournament);
         if (KIND_DUEL.equals(started.kind())) {
@@ -580,7 +591,7 @@ public class TournamentService {
         for (MatchRecord match : BracketPlanner.planPagePlayoff(
                 tournament.id(), qualifiers, firstRound, System.currentTimeMillis())) {
             matches.insertMatch(match);
-            ensureFirstGame(tournament.gameId(), match);
+            ensureFirstGame(tournament, match);
         }
         TournamentRecord pagePlayoff = tournaments.findById(tournament.id()).orElse(tournament);
         broadcastTournament(pagePlayoff);
@@ -602,7 +613,7 @@ public class TournamentService {
                 continue;
             }
             if (match.firstGameId() == null) {
-                ensureFirstGame(tournament.gameId(), match);
+                ensureFirstGame(tournament, match);
                 changed = true;
             }
             if (BracketPlanner.STATUS_PENDING.equals(match.status())
@@ -645,7 +656,8 @@ public class TournamentService {
                 tournament.currentRound(), tournament.totalRounds(), tournament.championUserId(),
                 tournament.championNickname(), tournament.runnerUpUserId(),
                 tournament.runnerUpNickname(), tournament.createdAt(), tournament.startedAt(),
-                tournament.finishedAt(), players, views, tournament.blindLayout());
+                tournament.finishedAt(), players, views, tournament.blindLayout(),
+                tournament.gamePool());
     }
 
     private MatchView matchView(MatchRecord match, TournamentRecord tournament) {
@@ -838,17 +850,23 @@ public class TournamentService {
         }
     }
 
-    /** 新开对阵的首局剧本：系统随机赛事逐场抽取，固定剧本赛事直接使用配置值。 */
-    private static String resolveGame(String tournamentGameId) {
-        return ArenaGames.isRandom(tournamentGameId)
-                ? ArenaGames.randomGame() : tournamentGameId;
+    /** 新开对阵的首局剧本：S赛从启用池逐场抽取，锦标赛固定配置值。 */
+    private static String resolveGame(TournamentRecord tournament) {
+        return ArenaGames.isRandom(tournament.gameId())
+                ? ArenaGames.randomGame(enabledPool(tournament)) : tournament.gameId();
     }
 
-    private void ensureFirstGame(String tournamentGameId, MatchRecord match) {
+    /** 历史 S赛没有 game_pool 字段，回退为全部 1v1 剧本。 */
+    private static List<String> enabledPool(TournamentRecord tournament) {
+        List<String> pool = tournament.gamePool();
+        return pool == null || pool.isEmpty() ? ArenaGames.TOURNAMENT_POOL : pool;
+    }
+
+    private void ensureFirstGame(TournamentRecord tournament, MatchRecord match) {
         if (match.firstGameId() != null || BracketPlanner.STATUS_BYE.equals(match.status())) {
             return;
         }
-        matches.initFirstGame(match.id(), resolveGame(tournamentGameId),
+        matches.initFirstGame(match.id(), resolveGame(tournament),
                 match.gameChooserUserId());
     }
 
@@ -890,8 +908,42 @@ public class TournamentService {
         return gameId;
     }
 
-    private static BlindLayout resolveBlindLayout(String gameId, String raw, String errorCode) {
-        if (!GameIds.BLIND_XIANGQI.equals(gameId)) {
+    /**
+     * S赛启用池缺省为全部 1v1 游戏；显式传入时必须非空、去重且都在剧本池内。
+     * 固定剧本的锦标赛不保存随机池。
+     */
+    private static List<String> resolveGamePool(String gameId, List<String> raw) {
+        if (!ArenaGames.isRandom(gameId)) {
+            return List.of();
+        }
+        if (raw == null) {
+            return ArenaGames.TOURNAMENT_POOL;
+        }
+        LinkedHashSet<String> pool = new LinkedHashSet<>();
+        for (String entry : raw) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            String normalized = entry.strip().toLowerCase(Locale.ROOT);
+            if (!ArenaGames.TOURNAMENT_POOL.contains(normalized)) {
+                throw GameException.badRequest("GAME_TOURNAMENT_INVALID",
+                        "随机池包含不支持的游戏");
+            }
+            pool.add(normalized);
+        }
+        if (pool.isEmpty()) {
+            throw GameException.badRequest("GAME_TOURNAMENT_INVALID",
+                    "S赛至少需要启用一个游戏");
+        }
+        return List.copyOf(pool);
+    }
+
+    /** 只有盲棋参与时才解析摆法；S赛抽到盲棋时沿用赛事级摆法，缺省标准点位。 */
+    private static BlindLayout resolveBlindLayout(String gameId, List<String> gamePool,
+                                                  String raw, String errorCode) {
+        boolean blindInPlay = GameIds.BLIND_XIANGQI.equals(gameId)
+                || (ArenaGames.isRandom(gameId) && gamePool.contains(GameIds.BLIND_XIANGQI));
+        if (!blindInPlay) {
             return null;
         }
         BlindLayout layout = BlindLayout.parse(raw);

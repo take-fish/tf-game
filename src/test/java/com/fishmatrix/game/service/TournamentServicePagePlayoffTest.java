@@ -119,7 +119,7 @@ class TournamentServicePagePlayoffTest {
         TournamentRecord finished = new TournamentRecord(
                 "t1", "演练", "random", "TOURNAMENT", "BO1", "PAGE_PLAYOFF",
                 "FINISHED", "u1", "甲", 4, 10_000L, 5, 5,
-                "u2", "乙", "u1", "甲", 1_000L, 2_000L, 3_000L, null);
+                "u2", "乙", "u1", "甲", 1_000L, 2_000L, 3_000L, null, null);
         when(matches.findById("m-final")).thenReturn(Optional.of(finalMatch));
         when(tournaments.findById("t1"))
                 .thenReturn(Optional.of(running), Optional.of(finished));
@@ -153,6 +153,6 @@ class TournamentServicePagePlayoffTest {
         return new TournamentRecord(
                 "t1", "演练", "random", "TOURNAMENT", "BO1", "PAGE_PLAYOFF",
                 status, "u1", "甲", 4, 10_000L, 3, 5,
-                null, null, null, null, 1_000L, 2_000L, null, null);
+                null, null, null, null, 1_000L, 2_000L, null, null, null);
     }
 }
