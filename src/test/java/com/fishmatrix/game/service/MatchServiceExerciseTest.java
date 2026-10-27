@@ -15,6 +15,7 @@ import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
+import com.fishmatrix.game.store.BlindXiangqiRepository;
 import com.fishmatrix.game.store.MatchRepository;
 import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
@@ -48,7 +49,8 @@ class MatchServiceExerciseTest {
         when(tournaments.findById("t1")).thenReturn(Optional.of(tournament()));
         when(registry.byUser(anyString())).thenReturn(List.of());
         service = new MatchService(
-                matches, tournaments, registry, mock(GameNotificationService.class),
+                matches, tournaments, mock(BlindXiangqiRepository.class),
+                registry, mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"),
                 mock(ArenaService.class), exercise);
@@ -81,7 +83,7 @@ class MatchServiceExerciseTest {
         return new TournamentRecord(
                 "t1", "巡检杯", "random", "TOURNAMENT", "BO1", "LEAGUE",
                 "RUNNING", "u1", "甲", 4, 10_000L, 1, 1,
-                null, null, null, null, 1_000L, 2_000L, null);
+                null, null, null, null, 1_000L, 2_000L, null, null);
     }
 
     private static GameIdentity identity(String userId) {

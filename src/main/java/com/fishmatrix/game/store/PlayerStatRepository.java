@@ -7,9 +7,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * 大排行榜与赛事统计。大榜只认赛事头衔：
- * 冠军 30 分、亚军 10 分；对局内得分仅用于单场判定，不进入大榜。
- * matches/wins/losses/best_score 继续保留作辅助统计，不影响大榜排序。
+ * 排行榜数据：game_player_stat 为综合大榜；game_player_game_stat 按游戏拆分的棋类榜。
+ * 大榜只认赛事头衔：冠军 30 分、亚军 10 分；对局内得分仅用于单场判定，不进入大榜。
+ * matches/wins/losses/best_score 继续保留作辅助统计与分游戏榜展示。
  */
 @Repository
 public class PlayerStatRepository {
@@ -79,6 +79,48 @@ public class PlayerStatRepository {
                 nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
+    /** 棋类赛事按游戏分别记一次参与；分游戏榜保留原有胜场积分与冠军奖励。 */
+    public void recordGameMatch(String gameId, String userId, String nickname,
+                                boolean win, boolean champion) {
+        ensureGame(gameId, userId, nickname);
+        int points = (win ? 3 : 1) + (champion ? 10 : 0);
+        jdbc.update("""
+                UPDATE game_player_game_stat
+                   SET matches = matches + 1,
+                       wins = wins + ?,
+                       losses = losses + ?,
+                       points = points + ?,
+                       championships = championships + ?,
+                       nickname = ?,
+                       updated_at = ?
+                 WHERE game_id = ? AND user_id = ?
+                """,
+                win ? 1 : 0, win ? 0 : 1, points, champion ? 1 : 0,
+                nickname, SqlTime.ts(System.currentTimeMillis()), gameId, userId);
+    }
+
+    /** 某一游戏的棋类排行榜。 */
+    public List<LeaderboardEntry> topByGame(String gameId, int limit) {
+        int safeLimit = Math.min(50, Math.max(1, limit));
+        return jdbc.query("""
+                SELECT user_id, nickname, points, matches, wins, losses, championships
+                  FROM game_player_game_stat
+                 WHERE game_id = ?
+                 ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+                 LIMIT ?
+                """, (rs, rowNum) -> new LeaderboardEntry(
+                rowNum + 1L,
+                rs.getString("user_id"),
+                rs.getString("nickname"),
+                rs.getInt("points"),
+                rs.getInt("points"),
+                rs.getInt("matches"),
+                rs.getInt("wins"),
+                rs.getInt("losses"),
+                rs.getInt("championships"),
+                0L), gameId, safeLimit);
+    }
+
     /** 打砖块只保留最高分，不折算大榜积分。 */
     public void recordBreakoutScore(String userId, String nickname, long score) {
         ensure(userId, nickname);
@@ -136,5 +178,31 @@ public class PlayerStatRepository {
                 WHERE user_id = ?
                 """, rs -> rs.next() ? rs.getLong(1) : 0L, userId);
         return rank == null ? 0L : rank;
+    }
+
+    private void ensureGame(String gameId, String userId, String nickname) {
+        long now = System.currentTimeMillis();
+        int updated = jdbc.update("""
+                UPDATE game_player_game_stat
+                   SET nickname = ?, updated_at = ?
+                 WHERE game_id = ? AND user_id = ?
+                """, nickname, SqlTime.ts(now), gameId, userId);
+        if (updated > 0) {
+            return;
+        }
+        try {
+            jdbc.update("""
+                    INSERT INTO game_player_game_stat
+                        (game_id, user_id, nickname, matches, wins, losses, points,
+                         championships, updated_at)
+                    VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?)
+                    """, gameId, userId, nickname, SqlTime.ts(now));
+        } catch (DuplicateKeyException ignored) {
+            jdbc.update("""
+                    UPDATE game_player_game_stat
+                       SET nickname = ?, updated_at = ?
+                     WHERE game_id = ? AND user_id = ?
+                    """, nickname, SqlTime.ts(now), gameId, userId);
+        }
     }
 }

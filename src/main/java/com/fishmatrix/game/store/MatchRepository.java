@@ -17,7 +17,11 @@ public class MatchRepository {
     private static final RowMapper<MatchRecord> MATCH_MAPPER = (rs, rowNum) -> mapMatch(rs);
     private static final RowMapper<RoundRecord> ROUND_MAPPER = (rs, rowNum) -> mapRound(rs);
     private static final RowMapper<MoveView> MOVE_MAPPER = (rs, rowNum) -> new MoveView(
-            rs.getInt("move_no"), rs.getString("user_id"), rs.getInt("x"), rs.getInt("y"));
+            rs.getInt("move_no"), rs.getString("user_id"), rs.getInt("x"), rs.getInt("y"),
+            rs.getString("action"),
+            SqlTime.nullableInt(rs, "from_x"), SqlTime.nullableInt(rs, "from_y"),
+            rs.getString("piece_type"), rs.getString("piece_color"),
+            rs.getString("captured_piece_type"), rs.getString("captured_piece_color"));
 
     private final JdbcTemplate jdbc;
 
@@ -277,16 +281,30 @@ public class MatchRepository {
 
     public List<MoveView> listMoves(String roundId) {
         return jdbc.query("""
-                SELECT move_no, user_id, x, y FROM game_move
+                SELECT move_no, user_id, x, y, action, from_x, from_y,
+                       piece_type, piece_color, captured_piece_type, captured_piece_color
+                  FROM game_move
                  WHERE round_id = ? ORDER BY move_no ASC
                 """, MOVE_MAPPER, roundId);
     }
 
     public void insertMove(String roundId, int moveNo, String userId, int x, int y, long now) {
+        insertMove(roundId, moveNo, userId, x, y, "PLACE",
+                null, null, null, null, null, null, now);
+    }
+
+    /** 盲棋动作：REVEAL 记录被翻开的棋，MOVE 记录起点与被吃棋身份。 */
+    public void insertMove(String roundId, int moveNo, String userId, int x, int y,
+                           String action, Integer fromX, Integer fromY,
+                           String pieceType, String pieceColor,
+                           String capturedPieceType, String capturedPieceColor, long now) {
         jdbc.update("""
-                INSERT INTO game_move (round_id, move_no, user_id, x, y, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """, roundId, moveNo, userId, x, y, SqlTime.ts(now));
+                INSERT INTO game_move
+                    (round_id, move_no, user_id, x, y, action, from_x, from_y,
+                     piece_type, piece_color, captured_piece_type, captured_piece_color, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, roundId, moveNo, userId, x, y, action, fromX, fromY,
+                pieceType, pieceColor, capturedPieceType, capturedPieceColor, SqlTime.ts(now));
     }
 
     /** 乐观更新：只有 move_count 与预期一致时才切换回合，避免并发落子覆盖。 */

@@ -37,6 +37,7 @@ class MatchServiceDuelVisibilityTest {
         service = new MatchService(
                 matches,
                 tournaments,
+                mock(com.fishmatrix.game.store.BlindXiangqiRepository.class),
                 mock(GameSessionRegistry.class),
                 mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),

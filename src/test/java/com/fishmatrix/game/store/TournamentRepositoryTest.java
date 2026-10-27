@@ -90,9 +90,12 @@ class TournamentRepositoryTest {
         assertThat(tournaments.listDuelsForUser("u3", 20))
                 .extracting(TournamentRecord::id)
                 .doesNotContain(id);
-        assertThat(tournaments.existsActiveDuelBetween("u1", "u2")).isTrue();
-        assertThat(tournaments.existsActiveDuelBetween("u2", "u1")).isTrue();
-        assertThat(tournaments.existsActiveDuelBetween("u1", "u3")).isFalse();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u1", "u2", "heatmap-gomoku")).isTrue();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u2", "u1", "heatmap-gomoku")).isTrue();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u1", "u3", "heatmap-gomoku")).isFalse();
     }
 
     @Test
@@ -103,10 +106,35 @@ class TournamentRepositoryTest {
         tournaments.insertPlayer(new TournamentPlayerRecord(
                 id, "u5", "对手", 2, "ACCEPTED", now, now));
 
-        assertThat(tournaments.existsActiveDuelBetween("u4", "u5")).isFalse();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u4", "u5", "heatmap-gomoku")).isFalse();
         assertThat(tournaments.listDuelsForUser("u5", 20))
                 .extracting(TournamentRecord::id)
                 .contains(id);
+    }
+
+    @Test
+    void activeDuelUniquenessIsPerGame() {
+        long now = System.currentTimeMillis();
+        String blindId = UUID.randomUUID().toString();
+        String gomokuId = UUID.randomUUID().toString();
+        tournaments.insert(record(blindId, "DUEL", "INVITING", "u6", "blind-xiangqi"));
+        tournaments.insertPlayer(new TournamentPlayerRecord(
+                blindId, "u6", "发起者", 1, "ACCEPTED", now, now));
+        tournaments.insertPlayer(new TournamentPlayerRecord(
+                blindId, "u7", "对手", 2, "INVITED", now, null));
+        tournaments.insert(record(gomokuId, "DUEL", "INVITING", "u6", "heatmap-gomoku"));
+        tournaments.insertPlayer(new TournamentPlayerRecord(
+                gomokuId, "u6", "发起者", 1, "ACCEPTED", now, now));
+        tournaments.insertPlayer(new TournamentPlayerRecord(
+                gomokuId, "u7", "对手", 2, "INVITED", now, null));
+
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u6", "u7", "blind-xiangqi")).isTrue();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u6", "u7", "heatmap-gomoku")).isTrue();
+        assertThat(tournaments.existsActiveDuelBetween(
+                "u6", "u7", "qps-breakout")).isFalse();
     }
 
     private TournamentRecord tournament(String id, String status, String creator) {
@@ -114,9 +142,14 @@ class TournamentRepositoryTest {
     }
 
     private TournamentRecord record(String id, String kind, String status, String creator) {
+        return record(id, kind, status, creator, "heatmap-gomoku");
+    }
+
+    private TournamentRecord record(String id, String kind, String status,
+                                    String creator, String gameId) {
         long now = System.currentTimeMillis();
         return new TournamentRecord(
-                id, "演练", "heatmap-gomoku", kind, "BO1", "TBD", status,
+                id, "演练", gameId, kind, "BO1", "TBD", status,
                 creator, "创建者", 2, now + 300_000L, 0, 0, null, null,
                 now, null, null);
     }

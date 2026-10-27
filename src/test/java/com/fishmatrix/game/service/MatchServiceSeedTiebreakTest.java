@@ -17,6 +17,7 @@ import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
+import com.fishmatrix.game.store.BlindXiangqiRepository;
 import com.fishmatrix.game.store.MatchRepository;
 import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
@@ -43,6 +44,7 @@ class MatchServiceSeedTiebreakTest {
         service = new MatchService(
                 matches,
                 tournaments,
+                mock(BlindXiangqiRepository.class),
                 registry,
                 mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),
@@ -120,7 +122,7 @@ class MatchServiceSeedTiebreakTest {
         return new TournamentRecord(
                 "t1", "演练", "random", "TOURNAMENT", "BO1", "PAGE_PLAYOFF",
                 "RUNNING", "u1", "甲", 4, 10_000L, 3, 5,
-                null, null, null, null, 1_000L, 2_000L, null);
+                null, null, null, null, 1_000L, 2_000L, null, null);
     }
 
     private TournamentPlayerRecord player(String userId, int seed) {
