@@ -40,6 +40,18 @@ class LeaderboardServiceTest {
     }
 
     @Test
+    void returnsPerGameLeaderboardForBoardGames() {
+        when(stats.topByGame("blind-xiangqi", 10)).thenReturn(List.of(
+                new LeaderboardEntry(1, "u3", "丙", 30, 30, 2, 2, 0, 0, 0)));
+
+        List<LeaderboardEntry> entries = service.leaderboard("blind-xiangqi", 10);
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).userId()).isEqualTo("u3");
+        verify(stats).topByGame("blind-xiangqi", 10);
+    }
+
+    @Test
     void submitsBreakoutScoreWithServerIdentity() {
         when(stats.bestScore("u7")).thenReturn(300L);
         when(stats.rank("u7")).thenReturn(2L);

@@ -22,5 +22,6 @@ public record TournamentView(
         Long startedAt,
         Long finishedAt,
         List<PlayerView> players,
-        List<MatchView> matches) {
+        List<MatchView> matches,
+        String blindLayout) {
 }

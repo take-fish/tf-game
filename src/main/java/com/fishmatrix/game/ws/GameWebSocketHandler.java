@@ -20,7 +20,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * 比赛 WebSocket：大厅、观战订阅、准备/落子/认输、公开与选手聊天。
+ * 比赛 WebSocket：大厅、观战订阅、准备/落子/翻棋/走子/认输、公开与选手聊天。
  * 身份来自一次性 ticket 的握手属性，不信任客户端自报。
  */
 @Component
@@ -99,6 +99,16 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         "match", matches.placeStone(
                                 session.getIdentity(), requireMatchId(inbound),
                                 inbound.x(), inbound.y())));
+                case "reveal_piece" -> registry.send(session, Map.of(
+                        "type", "match_update",
+                        "match", matches.revealPiece(
+                                session.getIdentity(), requireMatchId(inbound),
+                                inbound.x(), inbound.y())));
+                case "move_piece" -> registry.send(session, Map.of(
+                        "type", "match_update",
+                        "match", matches.movePiece(
+                                session.getIdentity(), requireMatchId(inbound),
+                                inbound.fromX(), inbound.fromY(), inbound.toX(), inbound.toY())));
                 case "resign" -> registry.send(session, Map.of(
                         "type", "match_update",
                         "match", matches.resign(session.getIdentity(), requireMatchId(inbound))));

@@ -23,5 +23,35 @@ public record MatchView(
         long createdAt,
         Long startedAt,
         Long finishedAt,
-        RoundView currentRound) {
+        RoundView currentRound,
+        String gameId,
+        String blindLayout) {
+
+    /** 兼容旧调用：未显式指定游戏时按五子棋处理。 */
+    public MatchView(
+            String id,
+            String tournamentId,
+            String kind,
+            int roundNo,
+            int slotNo,
+            String stage,
+            String status,
+            String player1UserId,
+            String player1Nickname,
+            String player2UserId,
+            String player2Nickname,
+            int player1Score,
+            int player2Score,
+            String winnerUserId,
+            String nextMatchId,
+            long createdAt,
+            Long startedAt,
+            Long finishedAt,
+            RoundView currentRound) {
+        this(id, tournamentId, kind, roundNo, slotNo, stage, status,
+                player1UserId, player1Nickname, player2UserId, player2Nickname,
+                player1Score, player2Score, winnerUserId, nextMatchId,
+                createdAt, startedAt, finishedAt, currentRound,
+                GameIds.HEATMAP_GOMOKU, null);
+    }
 }

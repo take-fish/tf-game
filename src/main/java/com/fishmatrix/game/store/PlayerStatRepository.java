@@ -7,8 +7,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * 综合排行榜。所有游戏共用一张表：
- * 五子棋按胜场/冠军累计积分，打砖块按最高分折算积分。
+ * 排行榜数据：game_player_stat 为综合榜；game_player_game_stat 按游戏拆分的棋类榜。
+ * 五子棋/盲棋按胜场与冠军累计积分，打砖块按最高分折算综合积分。
  */
 @Repository
 public class PlayerStatRepository {
@@ -58,6 +58,48 @@ public class PlayerStatRepository {
                 """,
                 win ? 1 : 0, win ? 0 : 1, points, champion ? 1 : 0,
                 nickname, SqlTime.ts(System.currentTimeMillis()), userId);
+    }
+
+    /** 棋类赛事按游戏分别记一次参与；冠军额外奖励。 */
+    public void recordGameMatch(String gameId, String userId, String nickname,
+                                boolean win, boolean champion) {
+        ensureGame(gameId, userId, nickname);
+        int points = (win ? 3 : 1) + (champion ? 10 : 0);
+        jdbc.update("""
+                UPDATE game_player_game_stat
+                   SET matches = matches + 1,
+                       wins = wins + ?,
+                       losses = losses + ?,
+                       points = points + ?,
+                       championships = championships + ?,
+                       nickname = ?,
+                       updated_at = ?
+                 WHERE game_id = ? AND user_id = ?
+                """,
+                win ? 1 : 0, win ? 0 : 1, points, champion ? 1 : 0,
+                nickname, SqlTime.ts(System.currentTimeMillis()), gameId, userId);
+    }
+
+    /** 某一游戏的棋类排行榜。 */
+    public List<LeaderboardEntry> topByGame(String gameId, int limit) {
+        int safeLimit = Math.min(50, Math.max(1, limit));
+        return jdbc.query("""
+                SELECT user_id, nickname, points, matches, wins, losses, championships
+                  FROM game_player_game_stat
+                 WHERE game_id = ?
+                 ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+                 LIMIT ?
+                """, (rs, rowNum) -> new LeaderboardEntry(
+                rowNum + 1L,
+                rs.getString("user_id"),
+                rs.getString("nickname"),
+                rs.getInt("points"),
+                rs.getInt("points"),
+                rs.getInt("matches"),
+                rs.getInt("wins"),
+                rs.getInt("losses"),
+                rs.getInt("championships"),
+                0L), gameId, safeLimit);
     }
 
     /** 打砖块只保留最高分；每 100 分折算 1 点综合积分，只奖励首次刷新部分。 */
@@ -121,5 +163,31 @@ public class PlayerStatRepository {
                 WHERE user_id = ?
                 """, rs -> rs.next() ? rs.getLong(1) : 0L, userId);
         return rank == null ? 0L : rank;
+    }
+
+    private void ensureGame(String gameId, String userId, String nickname) {
+        long now = System.currentTimeMillis();
+        int updated = jdbc.update("""
+                UPDATE game_player_game_stat
+                   SET nickname = ?, updated_at = ?
+                 WHERE game_id = ? AND user_id = ?
+                """, nickname, SqlTime.ts(now), gameId, userId);
+        if (updated > 0) {
+            return;
+        }
+        try {
+            jdbc.update("""
+                    INSERT INTO game_player_game_stat
+                        (game_id, user_id, nickname, matches, wins, losses, points,
+                         championships, updated_at)
+                    VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?)
+                    """, gameId, userId, nickname, SqlTime.ts(now));
+        } catch (DuplicateKeyException ignored) {
+            jdbc.update("""
+                    UPDATE game_player_game_stat
+                       SET nickname = ?, updated_at = ?
+                     WHERE game_id = ? AND user_id = ?
+                    """, nickname, SqlTime.ts(now), gameId, userId);
+        }
     }
 }

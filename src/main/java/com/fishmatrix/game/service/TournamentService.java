@@ -1,9 +1,11 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.model.BlindLayout;
 import com.fishmatrix.game.model.CreateDuelRequest;
 import com.fishmatrix.game.model.CreateTournamentRequest;
 import com.fishmatrix.game.model.GameException;
+import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchFinishedEvent;
 import com.fishmatrix.game.model.MatchRecord;
@@ -24,6 +26,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -47,7 +50,7 @@ public class TournamentService {
 
     private static final Logger log = LoggerFactory.getLogger(TournamentService.class);
 
-    public static final String GAME_ID = "heatmap-gomoku";
+    public static final String GAME_ID = GameIds.HEATMAP_GOMOKU;
     public static final String KIND_TOURNAMENT = "TOURNAMENT";
     public static final String KIND_DUEL = "DUEL";
     private static final Pattern USER_ID = Pattern.compile("u\\d{1,20}");
@@ -84,8 +87,11 @@ public class TournamentService {
         if (!FORMATS.contains(format)) {
             throw GameException.badRequest("GAME_TOURNAMENT_INVALID", "赛制只支持 BO1 / BO3 / BO5");
         }
+        String gameId = resolveGameId(request.gameId(), "GAME_TOURNAMENT_INVALID");
+        BlindLayout blindLayout = resolveBlindLayout(
+                gameId, request.blindLayout(), "GAME_TOURNAMENT_INVALID");
         String name = request.name() == null || request.name().isBlank()
-                ? "热力五子棋" : request.name().strip();
+                ? defaultTournamentName(gameId) : request.name().strip();
         if (name.codePointCount(0, name.length()) > 32) {
             throw GameException.badRequest("GAME_TOURNAMENT_INVALID", "赛事名称不能超过 32 个字符");
         }
@@ -102,10 +108,11 @@ public class TournamentService {
         long now = System.currentTimeMillis();
         String id = UUID.randomUUID().toString();
         TournamentRecord tournament = new TournamentRecord(
-                id, name, GAME_ID, KIND_TOURNAMENT, format, "TBD", "INVITING",
+                id, name, gameId, KIND_TOURNAMENT, format, "TBD", "INVITING",
                 creator.userId(), creator.nickname(), refs.size(),
                 now + properties.inviteTimeoutSeconds() * 1000L,
-                0, 0, null, null, now, null, null);
+                0, 0, null, null, now, null, null,
+                blindLayout == null ? null : blindLayout.name());
         tournaments.insert(tournament);
 
         Set<String> invitedIds = new LinkedHashSet<>();
@@ -153,6 +160,9 @@ public class TournamentService {
         if (!FORMATS.contains(format)) {
             throw GameException.badRequest("GAME_DUEL_INVALID", "赛制只支持 BO1 / BO3 / BO5");
         }
+        String gameId = resolveGameId(request.gameId(), "GAME_DUEL_INVALID");
+        BlindLayout blindLayout = resolveBlindLayout(
+                gameId, request.blindLayout(), "GAME_DUEL_INVALID");
         String opponentNickname = request.opponentNickname() == null
                 ? "" : request.opponentNickname().strip();
         if (opponentNickname.isEmpty()) {
@@ -164,17 +174,20 @@ public class TournamentService {
         if (registry.byUser(opponentId).isEmpty()) {
             throw GameException.conflict("GAME_OPPONENT_OFFLINE", "对方当前不在线，无法发起约战");
         }
-        if (tournaments.existsActiveDuelBetween(creator.userId(), opponentId)) {
-            throw GameException.conflict("GAME_DUEL_ACTIVE", "你们已有一场未结束的约战");
+        if (tournaments.existsActiveDuelBetween(creator.userId(), opponentId, gameId)) {
+            throw GameException.conflict(
+                    "GAME_DUEL_ACTIVE", "你们在这个游戏下已有一场未结束的约战");
         }
 
         long now = System.currentTimeMillis();
         String id = UUID.randomUUID().toString();
+        String name = GameIds.BLIND_XIANGQI.equals(gameId) ? "盲棋约战" : "一对一约战";
         TournamentRecord duel = new TournamentRecord(
-                id, "一对一约战", GAME_ID, KIND_DUEL, format, "TBD", "INVITING",
+                id, name, gameId, KIND_DUEL, format, "TBD", "INVITING",
                 creator.userId(), creator.nickname(), 2,
                 now + properties.inviteTimeoutSeconds() * 1000L,
-                0, 0, null, null, now, null, null);
+                0, 0, null, null, now, null, null,
+                blindLayout == null ? null : blindLayout.name());
         tournaments.insert(duel);
         tournaments.insertPlayer(new TournamentPlayerRecord(
                 id, creator.userId(), creator.nickname(), 1, "ACCEPTED", now, now));
@@ -446,7 +459,7 @@ public class TournamentService {
         if (KIND_TOURNAMENT.equals(tournament.kind())
                 && !BracketPlanner.STATUS_BYE.equals(match.status())
                 && match.winnerUserId() != null) {
-            recordLeaderboard(match, finalMatch);
+            recordLeaderboard(tournament.gameId(), match, finalMatch);
         }
 
         if (match.nextMatchId() != null && match.winnerUserId() != null) {
@@ -564,7 +577,7 @@ public class TournamentService {
                         player.userId(), player.nickname(), player.seed(), player.status()))
                 .toList();
         List<MatchView> views = matches.listByTournament(tournament.id()).stream()
-                .map(match -> matchView(match, tournament.kind()))
+                .map(match -> matchView(match, tournament))
                 .toList();
         return new TournamentView(
                 tournament.id(), tournament.name(), tournament.gameId(), tournament.kind(),
@@ -573,27 +586,30 @@ public class TournamentService {
                 tournament.creatorNickname(), tournament.targetPlayers(), tournament.inviteDeadline(),
                 tournament.currentRound(), tournament.totalRounds(), tournament.championUserId(),
                 tournament.championNickname(), tournament.createdAt(), tournament.startedAt(),
-                tournament.finishedAt(), players, views);
+                tournament.finishedAt(), players, views, tournament.blindLayout());
     }
 
-    private MatchView matchView(MatchRecord match, String kind) {
+    private MatchView matchView(MatchRecord match, TournamentRecord tournament) {
         return new MatchView(
-                match.id(), match.tournamentId(), kind, match.roundNo(), match.slotNo(),
+                match.id(), match.tournamentId(), tournament.kind(), match.roundNo(), match.slotNo(),
                 match.stage(), match.status(), match.player1UserId(), match.player1Nickname(),
                 match.player2UserId(), match.player2Nickname(), match.player1Score(),
                 match.player2Score(), match.winnerUserId(), match.nextMatchId(),
-                match.createdAt(), match.startedAt(), match.finishedAt(), null);
+                match.createdAt(), match.startedAt(), match.finishedAt(), null,
+                tournament.gameId(), tournament.blindLayout());
     }
 
-    private void recordLeaderboard(MatchRecord match, boolean champion) {
+    private void recordLeaderboard(String gameId, MatchRecord match, boolean champion) {
         String winnerId = match.winnerUserId();
         boolean winnerIsPlayer1 = winnerId.equals(match.player1UserId());
         String winnerNickname = winnerIsPlayer1 ? match.player1Nickname() : match.player2Nickname();
         String loserId = winnerIsPlayer1 ? match.player2UserId() : match.player1UserId();
         String loserNickname = winnerIsPlayer1 ? match.player2Nickname() : match.player1Nickname();
         stats.recordMatch(winnerId, winnerNickname, true, champion);
+        stats.recordGameMatch(gameId, winnerId, winnerNickname, true, champion);
         if (loserId != null) {
             stats.recordMatch(loserId, loserNickname, false, false);
+            stats.recordGameMatch(gameId, loserId, loserNickname, false, false);
         }
     }
 
@@ -756,6 +772,33 @@ public class TournamentService {
                     KIND_DUEL.equals(kind) ? "约战邀请已结束" : "赛事邀请已结束");
         }
         return tournament;
+    }
+
+    private static String resolveGameId(String raw, String errorCode) {
+        if (raw == null || raw.isBlank()) {
+            return GameIds.HEATMAP_GOMOKU;
+        }
+        String gameId = raw.strip().toLowerCase(Locale.ROOT);
+        if (!GameIds.ALL.contains(gameId)) {
+            throw GameException.badRequest(errorCode, "不支持的游戏类型");
+        }
+        return gameId;
+    }
+
+    private static BlindLayout resolveBlindLayout(String gameId, String raw, String errorCode) {
+        if (!GameIds.BLIND_XIANGQI.equals(gameId)) {
+            return null;
+        }
+        BlindLayout layout = BlindLayout.parse(raw);
+        if (layout == null) {
+            throw GameException.badRequest(errorCode,
+                    "盲棋摆法只支持 STANDARD_SHUFFLE / FULL_RANDOM / HALF_RANDOM");
+        }
+        return layout;
+    }
+
+    private static String defaultTournamentName(String gameId) {
+        return GameIds.BLIND_XIANGQI.equals(gameId) ? "盲棋" : "热力五子棋";
     }
 
     private List<PlayerRef> normalizePlayers(List<PlayerRef> input) {
