@@ -30,13 +30,15 @@ class LeaderboardServiceTest {
     @Test
     void returnsOverallLeaderboard() {
         when(stats.top(10)).thenReturn(List.of(
-                new LeaderboardEntry(1, "u2", "乙", 30, 30, 3, 3, 0, 1, 0)));
+                new LeaderboardEntry(1, "u2", "乙", 2, 1, 70)));
 
         List<LeaderboardEntry> entries = service.leaderboard("qps-breakout", 10);
 
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).userId()).isEqualTo("u2");
-        assertThat(entries.get(0).score()).isEqualTo(30);
+        assertThat(entries.get(0).championships()).isEqualTo(2);
+        assertThat(entries.get(0).runnerUps()).isEqualTo(1);
+        assertThat(entries.get(0).points()).isEqualTo(70);
     }
 
     @Test

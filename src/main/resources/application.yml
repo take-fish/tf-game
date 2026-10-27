@@ -52,12 +52,32 @@ app:
     max-players: ${GAME_MAX_PLAYERS:16}
     invite-timeout-seconds: ${GAME_INVITE_TIMEOUT_SECONDS:300}
     rest-seconds: ${GAME_REST_SECONDS:60}
-    move-timeout-seconds: ${GAME_MOVE_TIMEOUT_SECONDS:30}
+    move-timeout-seconds: ${GAME_MOVE_TIMEOUT_SECONDS:60}
     disconnect-timeout-seconds: ${GAME_DISCONNECT_TIMEOUT_SECONDS:60}
     ws-ticket-ttl-seconds: ${GAME_WS_TICKET_TTL_SECONDS:60}
     notification-ttl-seconds: ${GAME_NOTIFICATION_TTL_SECONDS:600}
     max-chat-length: ${GAME_MAX_CHAT_LENGTH:1000}
     allowed-origins: ${GAME_ALLOWED_ORIGINS:*}
+    # 实时竞技场：服务端权威 tick、广播频率与单局时长
+    arena:
+      enabled: ${GAME_ARENA_ENABLED:true}
+      tick-millis: ${GAME_ARENA_TICK_MILLIS:200}
+      snapshot-seconds: ${GAME_ARENA_SNAPSHOT_SECONDS:1}
+      actions-per-second: ${GAME_ARENA_ACTIONS_PER_SECOND:10}
+      rest-seconds: ${GAME_ARENA_REST_SECONDS:20}
+      heatmap-round-seconds: ${GAME_ARENA_HEATMAP_ROUND_SECONDS:120}
+      topology-round-seconds: ${GAME_ARENA_TOPOLOGY_ROUND_SECONDS:90}
+    # 集群巡检对抗：25Hz 积分、12.5Hz 广播、每秒快照，单实例内存房间
+    exercise:
+      enabled: ${GAME_EXERCISE_ENABLED:true}
+      tick-millis: ${GAME_EXERCISE_TICK_MILLIS:40}
+      broadcast-millis: ${GAME_EXERCISE_BROADCAST_MILLIS:80}
+      snapshot-seconds: ${GAME_EXERCISE_SNAPSHOT_SECONDS:1}
+      round-seconds: ${GAME_EXERCISE_ROUND_SECONDS:180}
+      max-rooms: ${GAME_EXERCISE_MAX_ROOMS:50}
+      max-players: ${GAME_EXERCISE_MAX_PLAYERS:4}
+      inputs-per-second: ${GAME_EXERCISE_INPUTS_PER_SECOND:30}
+      perception-range: ${GAME_EXERCISE_PERCEPTION_RANGE:380}
 
 management:
   tracing:

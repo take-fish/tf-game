@@ -47,12 +47,14 @@ class GameControllerTest {
     @Test
     void returnsLeaderboard() throws Exception {
         when(service.leaderboard("qps-breakout", 10))
-                .thenReturn(List.of(new LeaderboardEntry(1, "user-a", "甲", 120)));
+                .thenReturn(List.of(new LeaderboardEntry(1, "user-a", "甲", 3, 2, 110)));
 
         mockMvc.perform(get("/api/v1/game/leaderboard").param("gameId", "qps-breakout"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.entries[0].nickname").value("甲"))
-                .andExpect(jsonPath("$.entries[0].score").value(120));
+                .andExpect(jsonPath("$.entries[0].championships").value(3))
+                .andExpect(jsonPath("$.entries[0].runnerUps").value(2))
+                .andExpect(jsonPath("$.entries[0].points").value(110));
     }
 
     @Test
