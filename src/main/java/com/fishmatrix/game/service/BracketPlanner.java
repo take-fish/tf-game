@@ -11,13 +11,15 @@ import java.util.UUID;
  * 对阵编排：
  * - 2 的幂：随机单败淘汰树（2/4/8/16）。
  * - 非 2 的幂：先积分排位（3-5 人单循环，6 人以上瑞士轮 3 轮，均为 BO1），
- *   取前三后执行“三打二、胜者打一”的阶梯决赛。
+ *   取前四进行页面淘汰赛：三打四，胜者打二，胜者再打一。
+ * - 只有高顺位选手拥有首局剧本选择权：三号选首场、二号选挑战场、一号选决赛。
  */
 public final class BracketPlanner {
 
     public static final String STAGE_KNOCKOUT = "KNOCKOUT";
     public static final String STAGE_LEAGUE = "LEAGUE";
     public static final String STAGE_LADDER = "LADDER";
+    public static final String STAGE_PAGE_PLAYOFF = "PAGE_PLAYOFF";
 
     public static final String STATUS_READY = "READY";
     public static final String STATUS_PENDING = "PENDING";
@@ -123,9 +125,67 @@ public final class BracketPlanner {
         return matches;
     }
 
+    /** 页面淘汰赛轮数：4 人 3 场，3 人 2 场。 */
+    public static int pagePlayoffRounds(int qualifiers) {
+        return qualifiers >= 4 ? 3 : 2;
+    }
+
     /**
-     * 阶梯决赛：三号先挑战二号，胜者再挑战一号。
-     * challengeRound 为积分赛结束后的第一轮，final 在下一轮。
+     * 页面淘汰赛：
+     * 4 人：三号对四号（三号选首局），胜者对二号（二号选首局），胜者对一号（一号选首局）。
+     * 3 人：三号对二号（三号选首局），胜者对一号（一号选首局）。
+     * 首局剧本先由系统随机填入，具备选择权的选手可在开赛前改选。
+     */
+    public static List<MatchRecord> planPagePlayoff(
+            String tournamentId, List<TournamentPlayerRecord> qualifiers,
+            int firstRound, long now) {
+        if (qualifiers.size() < 3) {
+            throw new IllegalArgumentException("页面淘汰赛至少需要三名选手");
+        }
+        TournamentPlayerRecord first = qualifiers.get(0);
+        TournamentPlayerRecord second = qualifiers.get(1);
+        TournamentPlayerRecord third = qualifiers.get(2);
+        String finalId = UUID.randomUUID().toString();
+        if (qualifiers.size() == 3) {
+            MatchRecord opener = pagePlayoffMatch(
+                    UUID.randomUUID().toString(), tournamentId, firstRound, 1,
+                    third, second, finalId, STATUS_READY, third.userId(), now);
+            MatchRecord finalMatch = pagePlayoffMatch(
+                    finalId, tournamentId, firstRound + 1, 1,
+                    first, null, null, STATUS_PENDING, first.userId(), now);
+            return List.of(opener, finalMatch);
+        }
+
+        TournamentPlayerRecord fourth = qualifiers.get(3);
+        String challengeId = UUID.randomUUID().toString();
+        MatchRecord opener = pagePlayoffMatch(
+                UUID.randomUUID().toString(), tournamentId, firstRound, 1,
+                third, fourth, challengeId, STATUS_READY, third.userId(), now);
+        MatchRecord challenge = pagePlayoffMatch(
+                challengeId, tournamentId, firstRound + 1, 1,
+                second, null, finalId, STATUS_PENDING, second.userId(), now);
+        MatchRecord finalMatch = pagePlayoffMatch(
+                finalId, tournamentId, firstRound + 2, 1,
+                first, null, null, STATUS_PENDING, first.userId(), now);
+        return List.of(opener, challenge, finalMatch);
+    }
+
+    private static MatchRecord pagePlayoffMatch(
+            String id, String tournamentId, int round, int slot, TournamentPlayerRecord player1,
+            TournamentPlayerRecord player2, String nextMatchId,
+            String status, String chooserUserId, long now) {
+        return new MatchRecord(
+                id, tournamentId, round, slot,
+                STAGE_PAGE_PLAYOFF, status,
+                player1.userId(), player1.nickname(),
+                player2 == null ? null : player2.userId(),
+                player2 == null ? null : player2.nickname(),
+                0, 0, null, nextMatchId, now, null, null, null, chooserUserId);
+    }
+
+    /**
+     * 旧版阶梯决赛：三号先挑战二号，胜者再挑战一号。
+     * 仅为已在运行的旧赛事保留，新赛事使用页面淘汰赛。
      */
     public static List<MatchRecord> planLadder(
             String tournamentId, List<TournamentPlayerRecord> topThree,

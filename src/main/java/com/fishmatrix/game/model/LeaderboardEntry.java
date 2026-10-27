@@ -1,22 +1,14 @@
 package com.fishmatrix.game.model;
 
 /**
- * 综合排行榜条目。score 与 points 保持同值，兼容旧前端字段；
- * 其余字段用于展示对局数、冠军数和打砖块最高分。
+ * 大排行榜条目：只展示名号、ID、冠军数、亚军数与总积分。
+ * 总积分由赛事头衔折算：冠军 30 分，亚军 10 分；对局内得分不进入大榜。
  */
 public record LeaderboardEntry(
         long rank,
         String userId,
         String nickname,
-        long score,
-        int points,
-        int matches,
-        int wins,
-        int losses,
         int championships,
-        long bestScore) {
-
-    public LeaderboardEntry(long rank, String userId, String nickname, long score) {
-        this(rank, userId, nickname, score, (int) score, 0, 0, 0, 0, 0);
-    }
+        int runnerUps,
+        int points) {
 }
