@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -135,6 +136,22 @@ class TournamentRepositoryTest {
                 "u6", "u7", "heatmap-gomoku")).isTrue();
         assertThat(tournaments.existsActiveDuelBetween(
                 "u6", "u7", "qps-breakout")).isFalse();
+    }
+
+    @Test
+    void seriesGamePoolRoundTripsThroughRepository() {
+        String id = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        tournaments.insert(new TournamentRecord(
+                id, "S赛", "random", "TOURNAMENT", "BO1", "TBD", "INVITING",
+                "u8", "创建者", 2, now + 300_000L, 0, 0, null, null, null, null,
+                now, null, null, "STANDARD_SHUFFLE",
+                List.of("log-hotspot-arena", "blind-xiangqi")));
+
+        TournamentRecord stored = tournaments.findById(id).orElseThrow();
+        assertThat(stored.gamePool())
+                .containsExactly("log-hotspot-arena", "blind-xiangqi");
+        assertThat(stored.blindLayout()).isEqualTo("STANDARD_SHUFFLE");
     }
 
     private TournamentRecord tournament(String id, String status, String creator) {

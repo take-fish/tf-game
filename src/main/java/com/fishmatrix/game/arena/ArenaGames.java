@@ -7,7 +7,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * 演练剧本目录。
  * - 赛事默认使用 RANDOM：每一小局由系统从 1v1 可用的剧本池中随机抽取。
- * - 五子棋保留原 gameId；两个实时竞技场各有独立引擎。
+ * - 五子棋保留原 gameId；两个实时竞技场各有独立引擎；盲棋同样是 1v1 玩法。
  */
 public final class ArenaGames {
 
@@ -15,11 +15,12 @@ public final class ArenaGames {
     public static final String HEATMAP = "log-hotspot-arena";
     public static final String TOPOLOGY = "topology-arena";
     public static final String CLUSTER_PATROL = "cluster-patrol-arena";
+    public static final String BLIND_XIANGQI = "blind-xiangqi";
     public static final String RANDOM = "random";
 
-    /** 可进入赛事/约战的 1v1 剧本池。 */
+    /** 可进入赛事/约战的 1v1 剧本池；S赛创建时可按启用的子集缩小范围。 */
     public static final List<String> TOURNAMENT_POOL = List.of(
-            GOMOKU, HEATMAP, TOPOLOGY, CLUSTER_PATROL);
+            GOMOKU, HEATMAP, TOPOLOGY, CLUSTER_PATROL, BLIND_XIANGQI);
 
     public static final Set<String> ALL = Set.of(
             GOMOKU, HEATMAP, TOPOLOGY, CLUSTER_PATROL, RANDOM);
@@ -36,7 +37,13 @@ public final class ArenaGames {
     }
 
     public static String randomGame() {
-        return TOURNAMENT_POOL.get(ThreadLocalRandom.current().nextInt(TOURNAMENT_POOL.size()));
+        return randomGame(TOURNAMENT_POOL);
+    }
+
+    /** 从赛事启用池中抽取；池为空时回退到完整剧本池。 */
+    public static String randomGame(List<String> pool) {
+        List<String> candidates = pool == null || pool.isEmpty() ? TOURNAMENT_POOL : pool;
+        return candidates.get(ThreadLocalRandom.current().nextInt(candidates.size()));
     }
 
     public static String normalizeTournamentGame(String gameId) {

@@ -69,7 +69,7 @@ class MatchServiceBlindTest {
         TournamentRecord tournament = new TournamentRecord(
                 "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO1", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 1, null, null,
-                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE");
+                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE", null);
 
         when(matches.findById("m1")).thenReturn(Optional.of(match));
         when(matches.latestRound("m1")).thenReturn(Optional.of(round));
@@ -222,7 +222,7 @@ class MatchServiceBlindTest {
         when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
                 "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO3", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 3, null, null,
-                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE")));
+                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE", null)));
         when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
                 new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
                 new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
@@ -307,7 +307,7 @@ class MatchServiceBlindTest {
         when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
                 "t1", "热力五子棋", "heatmap-gomoku", "TOURNAMENT", "BO1", "TBD", "RUNNING",
                 "u1", "甲", 2, 10_000L, 1, 1, null, null,
-                null, null, 1_000L, 2_000L, null, null)));
+                null, null, 1_000L, 2_000L, null, null, null)));
 
         assertThatThrownBy(() -> service.revealPiece(identity("u1"), "m1", 4, 4))
                 .isInstanceOf(GameException.class)

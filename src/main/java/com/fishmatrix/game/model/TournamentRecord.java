@@ -1,5 +1,7 @@
 package com.fishmatrix.game.model;
 
+import java.util.List;
+
 public record TournamentRecord(
         String id,
         String name,
@@ -21,7 +23,8 @@ public record TournamentRecord(
         long createdAt,
         Long startedAt,
         Long finishedAt,
-        String blindLayout) {
+        String blindLayout,
+        List<String> gamePool) {
 
     /** 兼容旧调用：没有冠亚军扩展字段与盲棋摆法。 */
     public TournamentRecord(
@@ -46,6 +49,6 @@ public record TournamentRecord(
         this(id, name, gameId, kind, format, bracketType, status,
                 creatorUserId, creatorNickname, targetPlayers, inviteDeadline,
                 currentRound, totalRounds, championUserId, championNickname,
-                null, null, createdAt, startedAt, finishedAt, null);
+                null, null, createdAt, startedAt, finishedAt, null, null);
     }
 }

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS game_tournament (
     id VARCHAR(36) NOT NULL,
     name VARCHAR(64) NOT NULL,
     game_id VARCHAR(32) NOT NULL,
+    game_pool VARCHAR(255) NULL,
     blind_layout VARCHAR(24) NULL,
     kind VARCHAR(16) NOT NULL DEFAULT 'TOURNAMENT',
     format VARCHAR(8) NOT NULL,

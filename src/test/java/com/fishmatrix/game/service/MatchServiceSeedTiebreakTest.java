@@ -122,7 +122,7 @@ class MatchServiceSeedTiebreakTest {
         return new TournamentRecord(
                 "t1", "演练", "random", "TOURNAMENT", "BO1", "PAGE_PLAYOFF",
                 "RUNNING", "u1", "甲", 4, 10_000L, 3, 5,
-                null, null, null, null, 1_000L, 2_000L, null, null);
+                null, null, null, null, 1_000L, 2_000L, null, null, null);
     }
 
     private TournamentPlayerRecord player(String userId, int seed) {

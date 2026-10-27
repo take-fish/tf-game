@@ -32,14 +32,16 @@ public class TournamentRepository {
     public void insert(TournamentRecord t) {
         jdbc.update("""
                 INSERT INTO game_tournament
-                    (id, name, game_id, blind_layout, kind, format, bracket_type, status,
-                     creator_user_id, creator_nickname, target_players, invite_deadline,
-                     current_round, total_rounds, champion_user_id, champion_nickname,
+                    (id, name, game_id, game_pool, blind_layout, kind, format,
+                     bracket_type, status, creator_user_id, creator_nickname,
+                     target_players, invite_deadline, current_round, total_rounds,
+                     champion_user_id, champion_nickname,
                      runner_up_user_id, runner_up_nickname,
                      created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                t.id(), t.name(), t.gameId(), t.blindLayout(), t.kind(), t.format(),
+                t.id(), t.name(), t.gameId(), poolCsv(t.gamePool()),
+                t.blindLayout(), t.kind(), t.format(),
                 t.bracketType(), t.status(),
                 t.creatorUserId(), t.creatorNickname(), t.targetPlayers(),
                 SqlTime.ts(t.inviteDeadline()), t.currentRound(), t.totalRounds(),
@@ -293,6 +295,22 @@ public class TournamentRepository {
                 SqlTime.millis(rs, "created_at"),
                 SqlTime.nullableMillis(rs, "started_at"),
                 SqlTime.nullableMillis(rs, "finished_at"),
-                rs.getString("blind_layout"));
+                rs.getString("blind_layout"),
+                readPool(rs.getString("game_pool")));
+    }
+
+    /** 随机池按逗号分隔落库；固定剧本赛事保持 NULL。 */
+    private static String poolCsv(List<String> pool) {
+        return pool == null || pool.isEmpty() ? null : String.join(",", pool);
+    }
+
+    private static List<String> readPool(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::strip)
+                .filter(entry -> !entry.isEmpty())
+                .toList();
     }
 }
