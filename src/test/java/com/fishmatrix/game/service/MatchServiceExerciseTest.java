@@ -83,7 +83,7 @@ class MatchServiceExerciseTest {
         return new TournamentRecord(
                 "t1", "巡检杯", "random", "TOURNAMENT", "BO1", "LEAGUE",
                 "RUNNING", "u1", "甲", 4, 10_000L, 1, 1,
-                null, null, null, null, 1_000L, 2_000L, null, null);
+                null, null, null, null, 1_000L, 2_000L, null, null, null);
     }
 
     private static GameIdentity identity(String userId) {
