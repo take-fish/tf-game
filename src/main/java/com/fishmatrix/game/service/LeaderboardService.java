@@ -1,6 +1,7 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.common.auth.CurrentUser;
+import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
@@ -10,13 +11,15 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 /**
- * 综合排行榜：五子棋与打砖块共用 game_player_stat。
- * 排行榜接口不再区分游戏，gameId 仅为兼容旧前端保留。
+ * 排行榜：overall / qps-breakout 等返回综合榜；
+ * 五子棋、盲棋按 gameId 返回各自的棋类榜。
  */
 @Service
 public class LeaderboardService {
 
     private static final Set<String> SCORE_GAMES = Set.of("qps-breakout");
+    private static final Set<String> GAME_LEADERBOARDS =
+            Set.of(GameIds.HEATMAP_GOMOKU, GameIds.BLIND_XIANGQI);
     private static final long MAX_SCORE = 1_000_000L;
 
     private final PlayerStatRepository stats;
@@ -26,6 +29,9 @@ public class LeaderboardService {
     }
 
     public List<LeaderboardEntry> leaderboard(String gameId, int limit) {
+        if (gameId != null && GAME_LEADERBOARDS.contains(gameId)) {
+            return stats.topByGame(gameId, limit);
+        }
         return stats.top(limit);
     }
 

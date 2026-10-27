@@ -120,12 +120,13 @@ class TournamentServiceDuelTest {
     @Test
     void duplicateActiveDuelIsRejected() {
         when(registry.byUser("u2")).thenReturn(List.of(mock(GameSession.class)));
-        when(tournaments.existsActiveDuelBetween("u1", "u2")).thenReturn(true);
+        when(tournaments.existsActiveDuelBetween("u1", "u2", "heatmap-gomoku"))
+                .thenReturn(true);
 
         assertThatThrownBy(() -> service.createDuel(
                 identity("u1"), new CreateDuelRequest("u2", "乙", "BO1")))
                 .isInstanceOf(GameException.class)
-                .hasMessage("你们已有一场未结束的约战");
+                .hasMessage("你们在这个游戏下已有一场未结束的约战");
     }
 
     @Test

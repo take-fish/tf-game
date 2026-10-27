@@ -32,13 +32,14 @@ public class TournamentRepository {
     public void insert(TournamentRecord t) {
         jdbc.update("""
                 INSERT INTO game_tournament
-                    (id, name, game_id, kind, format, bracket_type, status,
+                    (id, name, game_id, blind_layout, kind, format, bracket_type, status,
                      creator_user_id, creator_nickname, target_players, invite_deadline,
                      current_round, total_rounds, champion_user_id, champion_nickname,
                      created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                t.id(), t.name(), t.gameId(), t.kind(), t.format(), t.bracketType(), t.status(),
+                t.id(), t.name(), t.gameId(), t.blindLayout(), t.kind(), t.format(),
+                t.bracketType(), t.status(),
                 t.creatorUserId(), t.creatorNickname(), t.targetPlayers(),
                 SqlTime.ts(t.inviteDeadline()), t.currentRound(), t.totalRounds(),
                 t.championUserId(), t.championNickname(), SqlTime.ts(t.createdAt()),
@@ -84,8 +85,8 @@ public class TournamentRepository {
                 """, TOURNAMENT_MAPPER, userId, Math.min(50, Math.max(1, limit)));
     }
 
-    /** 同一对用户已有未结束约战时，避免重复发起。 */
-    public boolean existsActiveDuelBetween(String firstUserId, String secondUserId) {
+    /** 同一对用户在同一游戏下已有未结束约战时，避免重复发起；不同游戏可并行。 */
+    public boolean existsActiveDuelBetween(String firstUserId, String secondUserId, String gameId) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM game_tournament t
                   JOIN game_tournament_player p1 ON p1.tournament_id = t.id
@@ -93,9 +94,10 @@ public class TournamentRepository {
                  WHERE t.kind = 'DUEL'
                    AND t.status IN ('INVITING', 'RUNNING')
                    AND t.deleted_at IS NULL
+                   AND t.game_id = ?
                    AND p1.user_id = ?
                    AND p2.user_id = ?
-                """, Integer.class, firstUserId, secondUserId);
+                """, Integer.class, gameId, firstUserId, secondUserId);
         return count != null && count > 0;
     }
 
@@ -271,6 +273,7 @@ public class TournamentRepository {
                 rs.getString("champion_nickname"),
                 SqlTime.millis(rs, "created_at"),
                 SqlTime.nullableMillis(rs, "started_at"),
-                SqlTime.nullableMillis(rs, "finished_at"));
+                SqlTime.nullableMillis(rs, "finished_at"),
+                rs.getString("blind_layout"));
     }
 }

@@ -11,10 +11,24 @@ CREATE TABLE IF NOT EXISTS game_player_stat (
     PRIMARY KEY (user_id)
 );
 
+CREATE TABLE IF NOT EXISTS game_player_game_stat (
+    game_id VARCHAR(32) NOT NULL,
+    user_id VARCHAR(64) NOT NULL,
+    nickname VARCHAR(64) NOT NULL,
+    matches INT NOT NULL DEFAULT 0,
+    wins INT NOT NULL DEFAULT 0,
+    losses INT NOT NULL DEFAULT 0,
+    points INT NOT NULL DEFAULT 0,
+    championships INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP(3) NOT NULL,
+    PRIMARY KEY (game_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS game_tournament (
     id VARCHAR(36) NOT NULL,
     name VARCHAR(64) NOT NULL,
     game_id VARCHAR(32) NOT NULL,
+    blind_layout VARCHAR(24) NULL,
     kind VARCHAR(16) NOT NULL DEFAULT 'TOURNAMENT',
     format VARCHAR(8) NOT NULL,
     bracket_type VARCHAR(16) NOT NULL,
@@ -92,8 +106,27 @@ CREATE TABLE IF NOT EXISTS game_move (
     user_id VARCHAR(64) NOT NULL,
     x INT NOT NULL,
     y INT NOT NULL,
+    action VARCHAR(16) NOT NULL DEFAULT 'PLACE',
+    from_x INT NULL,
+    from_y INT NULL,
+    piece_type VARCHAR(16) NULL,
+    piece_color VARCHAR(8) NULL,
+    captured_piece_type VARCHAR(16) NULL,
+    captured_piece_color VARCHAR(8) NULL,
     created_at TIMESTAMP(3) NOT NULL,
     PRIMARY KEY (round_id, move_no)
+);
+
+CREATE TABLE IF NOT EXISTS game_blind_piece (
+    round_id VARCHAR(36) NOT NULL,
+    piece_id VARCHAR(36) NOT NULL,
+    color VARCHAR(8) NOT NULL,
+    piece_type VARCHAR(16) NOT NULL,
+    x INT NOT NULL,
+    y INT NOT NULL,
+    revealed BOOLEAN NOT NULL DEFAULT FALSE,
+    alive BOOLEAN NOT NULL DEFAULT TRUE,
+    PRIMARY KEY (round_id, piece_id)
 );
 
 CREATE TABLE IF NOT EXISTS game_chat_message (
@@ -122,6 +155,7 @@ CREATE TABLE IF NOT EXISTS game_notification (
 );
 
 CREATE INDEX IF NOT EXISTS idx_player_points ON game_player_stat (points, wins, championships);
+CREATE INDEX IF NOT EXISTS idx_game_player_points ON game_player_game_stat (game_id, points, wins, championships);
 CREATE INDEX IF NOT EXISTS idx_tournament_status ON game_tournament (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_tournament_kind_status ON game_tournament (kind, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_tournament_deleted ON game_tournament (deleted_at, created_at);
@@ -129,5 +163,6 @@ CREATE INDEX IF NOT EXISTS idx_tournament_player_user ON game_tournament_player 
 CREATE INDEX IF NOT EXISTS idx_match_tournament ON game_match (tournament_id, round_no, slot_no);
 CREATE INDEX IF NOT EXISTS idx_match_player ON game_match (player1_user_id, player2_user_id);
 CREATE INDEX IF NOT EXISTS idx_round_match ON game_round (match_id);
+CREATE INDEX IF NOT EXISTS idx_blind_piece_round ON game_blind_piece (round_id, alive);
 CREATE INDEX IF NOT EXISTS idx_chat_room ON game_chat_message (tournament_id, match_id, channel, created_at);
 CREATE INDEX IF NOT EXISTS idx_notification_time ON game_notification (created_at);
