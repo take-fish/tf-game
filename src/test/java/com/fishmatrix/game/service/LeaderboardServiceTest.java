@@ -63,7 +63,7 @@ class LeaderboardServiceTest {
 
         assertThat(response.bestScore()).isEqualTo(300);
         assertThat(response.rank()).isEqualTo(2);
-        verify(stats).recordBreakoutScore("u7", "甲", 300);
+        verify(stats).raiseBestScore("u7", "甲", 300);
     }
 
     @Test

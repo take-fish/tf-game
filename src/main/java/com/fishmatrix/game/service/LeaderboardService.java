@@ -47,7 +47,7 @@ public class LeaderboardService {
         if (nickname.isEmpty() || nickname.codePointCount(0, nickname.length()) > 32) {
             throw new IllegalArgumentException("昵称不合法");
         }
-        stats.recordBreakoutScore(user.userId(), nickname, request.score());
+        stats.raiseBestScore(user.userId(), nickname, request.score());
         return new ScoreResponse(stats.bestScore(user.userId()), stats.rank(user.userId()));
     }
 }

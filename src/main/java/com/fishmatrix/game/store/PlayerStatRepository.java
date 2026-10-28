@@ -9,15 +9,12 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 排行榜数据：game_player_stat 为综合大榜；game_player_game_stat 按游戏拆分的棋类榜。
- * 大榜只认赛事头衔：冠军 30 分、亚军 10 分；对局内得分仅用于单场判定，不进入大榜。
+ * 只负责持久化；积分与头衔规则在 {@code PlayerStatRules}，由 Service 计算增量后传入。
  * matches/wins/losses/best_score 继续保留作辅助统计与分游戏榜展示。
  */
 @RequiredArgsConstructor
 @Repository
 public class PlayerStatRepository {
-
-    public static final int CHAMPION_POINTS = 30;
-    public static final int RUNNER_UP_POINTS = 10;
 
     private final JdbcTemplate jdbc;
 
@@ -44,10 +41,9 @@ public class PlayerStatRepository {
         }
     }
 
-    /** 赛事结束时一次性记录头衔；积分只由冠军/亚军折算，不按场次累加。 */
-    public void recordTitle(String userId, String nickname, boolean champion) {
+    /** 按增量累计赛事头衔；头衔与积分由 PlayerStatRules 计算后传入。 */
+    public void addTitle(String userId, String nickname, int championships, int runnerUps, int points) {
         ensure(userId, nickname);
-        int pointDelta = champion ? CHAMPION_POINTS : RUNNER_UP_POINTS;
         jdbc.update("""
                 UPDATE game_player_stat
                    SET championships = championships + ?,
@@ -56,13 +52,12 @@ public class PlayerStatRepository {
                        nickname = ?,
                        updated_at = ?
                  WHERE user_id = ?
-                """,
-                champion ? 1 : 0, champion ? 0 : 1, pointDelta,
+                """, championships, runnerUps, points,
                 nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
-    /** 保留对局统计，但不再给大榜加任何分数。 */
-    public void recordMatch(String userId, String nickname, boolean win, boolean champion) {
+    /** 按增量累计对局统计，大榜积分不随场次增加。 */
+    public void addMatch(String userId, String nickname, int wins, int losses) {
         ensure(userId, nickname);
         jdbc.update("""
                 UPDATE game_player_stat
@@ -72,16 +67,14 @@ public class PlayerStatRepository {
                        nickname = ?,
                        updated_at = ?
                  WHERE user_id = ?
-                """,
-                win ? 1 : 0, win ? 0 : 1,
+                """, wins, losses,
                 nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
-    /** 棋类赛事按游戏分别记一次参与；分游戏榜保留原有胜场积分与冠军奖励。 */
-    public void recordGameMatch(String gameId, String userId, String nickname,
-                                boolean win, boolean champion) {
+    /** 按增量累计分游戏榜的场次、积分与冠军次数。 */
+    public void addGameMatch(String gameId, String userId, String nickname,
+                             int wins, int losses, int points, int championships) {
         ensureGame(gameId, userId, nickname);
-        int points = (win ? 3 : 1) + (champion ? 10 : 0);
         jdbc.update("""
                 UPDATE game_player_game_stat
                    SET matches = matches + 1,
@@ -92,8 +85,7 @@ public class PlayerStatRepository {
                        nickname = ?,
                        updated_at = ?
                  WHERE game_id = ? AND user_id = ?
-                """,
-                win ? 1 : 0, win ? 0 : 1, points, champion ? 1 : 0,
+                """, wins, losses, points, championships,
                 nickname, SqlTime.ts(System.currentTimeMillis()), gameId, userId);
     }
 
@@ -119,16 +111,17 @@ public class PlayerStatRepository {
                 0L), gameId, safeLimit);
     }
 
-    /** 打砖块只保留最高分，不折算大榜积分。 */
-    public void recordBreakoutScore(String userId, String nickname, long score) {
+    /**
+     * 打砖块只保留更高分，不折算大榜积分。
+     * 用数据库侧 GREATEST 原子比较，避免并发读改写把更高的历史分覆盖掉。
+     */
+    public void raiseBestScore(String userId, String nickname, long score) {
         ensure(userId, nickname);
-        long previous = bestScore(userId);
-        long newBest = Math.max(previous, score);
         jdbc.update("""
                 UPDATE game_player_stat
-                   SET best_score = ?, nickname = ?, updated_at = ?
+                   SET best_score = GREATEST(best_score, ?), nickname = ?, updated_at = ?
                  WHERE user_id = ?
-                """, newBest, nickname, SqlTime.ts(System.currentTimeMillis()), userId);
+                """, score, nickname, SqlTime.ts(System.currentTimeMillis()), userId);
     }
 
     public long bestScore(String userId) {
