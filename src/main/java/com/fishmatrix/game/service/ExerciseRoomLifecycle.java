@@ -7,8 +7,11 @@ import com.fishmatrix.game.arena.ExerciseEngine.ExercisePlayer;
 import com.fishmatrix.game.arena.ExerciseEngine.ExerciseState;
 import com.fishmatrix.game.arena.ExerciseEngine.PlayerSeed;
 import com.fishmatrix.game.config.ExerciseProperties;
-import com.fishmatrix.game.store.ExerciseRepository;
-import com.fishmatrix.game.store.ExerciseRepository.ResultRow;
+import com.fishmatrix.game.converter.ExerciseConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.mapper.GameExerciseMapper;
+import com.fishmatrix.game.model.ExerciseResultRecord;
+import com.fishmatrix.game.model.ExerciseRoomRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -30,7 +33,7 @@ class ExerciseRoomLifecycle {
 
     private final ExerciseEngine engine;
     private final ExerciseProperties properties;
-    private final ExerciseRepository repository;
+    private final GameExerciseMapper repository;
     private final ApplicationEventPublisher publisher;
     private final ObjectMapper objectMapper;
     private final ExerciseRoomRegistry rooms;
@@ -66,7 +69,7 @@ class ExerciseRoomLifecycle {
         room.startedAt = now;
         room.lastBroadcastAt = 0;
         room.lastSnapshotAt = now;
-        ExerciseRepository.RoomRow row = ExercisePersister.row(
+        ExerciseRoomRecord row = ExercisePersister.row(
                 room, persister.writeState(room.state));
         if (room.persisted) {
             repository.updateRoomState(
@@ -74,15 +77,16 @@ class ExerciseRoomLifecycle {
                     ExerciseService.STATUS_RUNNING);
             for (ExerciseService.Member member : room.members.values()) {
                 if (member.bot && member.joinedAt == now) {
-                    repository.insertMember(
-                            ExercisePersister.memberRow(room.id, member));
+                    repository.insertMember(ExerciseConverters.toEntity(
+                            ExercisePersister.memberRow(room.id, member)));
                 }
             }
         } else {
-            repository.insertRoom(row);
+            repository.insert(ExerciseConverters.toEntity(row));
             room.persisted = true;
             for (ExerciseService.Member member : room.members.values()) {
-                repository.insertMember(ExercisePersister.memberRow(room.id, member));
+                repository.insertMember(ExerciseConverters.toEntity(
+                        ExercisePersister.memberRow(room.id, member)));
             }
         }
         log.info("巡检房间开始 room={} mode={} players={}",
@@ -106,7 +110,7 @@ class ExerciseRoomLifecycle {
             if (room.persisted) {
                 repository.finishRoom(
                         room.id, winner, winnerTeam, reason,
-                        persister.writeState(state), state.seq, now);
+                        persister.writeState(state), state.seq, SqlTime.toDateTime(now));
                 for (ExercisePlayer actor : state.actors) {
                     if (actor.bot) {
                         continue;
@@ -114,12 +118,13 @@ class ExerciseRoomLifecycle {
                     repository.updateMemberStats(
                             room.id, actor.userId, actor.score,
                             actor.kills, actor.deaths, actor.assists);
-                    repository.insertResult(new ResultRow(
-                            UUID.randomUUID().toString(), room.id, room.mode,
-                            actor.userId, actor.nickname, actor.team,
-                            rankOf(state, actor), actor.score, actor.kills,
-                            actor.deaths, actor.assists,
-                            actor.userId.equals(winner), now));
+                    repository.insertResult(ExerciseConverters.toEntity(
+                            new ExerciseResultRecord(
+                                    UUID.randomUUID().toString(), room.id, room.mode,
+                                    actor.userId, actor.nickname, actor.team,
+                                    rankOf(state, actor), actor.score, actor.kills,
+                                    actor.deaths, actor.assists,
+                                    actor.userId.equals(winner), now)));
                 }
             }
             Map<String, Object> frame = new LinkedHashMap<>();
@@ -151,7 +156,7 @@ class ExerciseRoomLifecycle {
     void cancel(ExerciseService.Room room, long now, String reason) {
         rooms.rooms.remove(room.id, room);
         if (room.persisted) {
-            repository.cancelRoom(room.id, reason, now);
+            repository.cancelRoom(room.id, reason, SqlTime.toDateTime(now));
         }
         Map<String, Object> frame = new LinkedHashMap<>();
         frame.put("type", "exercise_finished");

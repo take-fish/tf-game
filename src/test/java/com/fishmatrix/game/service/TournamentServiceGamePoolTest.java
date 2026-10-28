@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -13,6 +12,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.entity.GameTournamentEntity;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.CreateTournamentRequest;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
@@ -22,35 +27,30 @@ import com.fishmatrix.game.model.PlayerRef;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.model.TournamentView;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.PlayerStatRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 class TournamentServiceGamePoolTest {
 
-    private TournamentRepository tournaments;
-    private MatchRepository matches;
+    private TournamentMapper tournaments;
+    private MatchMapper matches;
     private TournamentService service;
 
     @BeforeEach
     void setUp() {
-        tournaments = mock(TournamentRepository.class);
-        matches = mock(MatchRepository.class);
+        tournaments = mock(TournamentMapper.class);
+        matches = mock(MatchMapper.class);
         service = new TournamentService(
                 tournaments,
                 matches,
-                mock(PlayerStatRepository.class),
+                mock(PlayerStatMapper.class),
                 mock(GameSessionRegistry.class),
                 mock(GameNotificationService.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"));
-        when(tournaments.listPlayers(any())).thenReturn(List.of());
-        when(matches.listByTournament(any())).thenReturn(List.of());
+        when(tournaments.selectPlayers(any())).thenReturn(List.of());
+        when(matches.selectByTournament(any())).thenReturn(List.of());
     }
 
     @Test
@@ -83,7 +83,7 @@ class TournamentServiceGamePoolTest {
                 null, "BO1", players(), "random", null, List.of())))
                 .isInstanceOf(GameException.class)
                 .hasMessage("S赛至少需要启用一个游戏");
-        verify(tournaments, never()).insert(any());
+        verify(tournaments, never()).insert(any(GameTournamentEntity.class));
     }
 
     @Test
@@ -92,7 +92,7 @@ class TournamentServiceGamePoolTest {
                 null, "BO1", players(), "random", null, List.of("unknown-game"))))
                 .isInstanceOf(GameException.class)
                 .hasMessage("随机池包含不支持的游戏");
-        verify(tournaments, never()).insert(any());
+        verify(tournaments, never()).insert(any(GameTournamentEntity.class));
     }
 
     @Test
@@ -109,12 +109,14 @@ class TournamentServiceGamePoolTest {
     @Test
     void startDrawsFirstGameOnlyFromEnabledPool() {
         TournamentRecord series = series("INVITING", List.of("log-hotspot-arena"), null);
-        when(tournaments.allAcceptedOrInvited("t1")).thenReturn(List.of(
-                player("u1", 1), player("u2", 2)));
-        when(tournaments.acceptedPlayers("t1")).thenReturn(List.of(
-                player("u1", 1), player("u2", 2)));
-        when(tournaments.start(eq("t1"), anyString(), anyInt(), anyLong())).thenReturn(1);
-        when(tournaments.findById("t1")).thenReturn(Optional.of(series));
+        List<TournamentPlayerRecord> players = List.of(player("u1", 1), player("u2", 2));
+        when(tournaments.selectAcceptedOrInvited("t1"))
+                .thenReturn(TournamentConverters.playerEntities(players));
+        when(tournaments.selectAcceptedPlayers("t1"))
+                .thenReturn(TournamentConverters.playerEntities(players));
+        when(tournaments.start(eq("t1"), anyString(), anyInt(), any())).thenReturn(1);
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(series));
 
         service.startIfReady(series);
 
@@ -124,8 +126,10 @@ class TournamentServiceGamePoolTest {
     @Test
     void firstGameChooserCannotEscapeEnabledPool() {
         TournamentRecord series = series("RUNNING", List.of("log-hotspot-arena"), null);
-        when(tournaments.findById("t1")).thenReturn(Optional.of(series));
-        when(matches.findById("m1")).thenReturn(Optional.of(readyMatch()));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(series));
+        when(matches.selectById("m1"))
+                .thenReturn(MatchConverters.toEntity(readyMatch()));
 
         assertThatThrownBy(() -> service.chooseGame(
                 identity("u1"), "m1", "heatmap-gomoku"))
@@ -141,9 +145,11 @@ class TournamentServiceGamePoolTest {
                 "m1", "t1", 1, 1, "KNOCKOUT", "READY",
                 "u1", "甲", "u2", "乙", 0, 0, null, null,
                 1_000L, null, null, "log-hotspot-arena", "u1");
-        when(tournaments.findById("t1")).thenReturn(Optional.of(series));
-        when(matches.findById("m1"))
-                .thenReturn(Optional.of(readyMatch()), Optional.of(updated));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(series));
+        when(matches.selectById("m1")).thenReturn(
+                MatchConverters.toEntity(readyMatch()),
+                MatchConverters.toEntity(updated));
         when(matches.updateFirstGame("m1", "log-hotspot-arena")).thenReturn(1);
 
         MatchView view = service.chooseGame(identity("u1"), "m1", "random");

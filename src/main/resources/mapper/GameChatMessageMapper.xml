@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.GameChatMessageMapper">
+
+  <!-- 倒序取最近 limit 条，再整体正序返回；PLAYER_DM 只取双方互相可见的消息。 -->
+  <select id="selectHistory" resultType="com.fishmatrix.game.entity.GameChatMessageEntity">
+    SELECT * FROM (
+      SELECT * FROM game_chat_message
+       WHERE tournament_id = #{tournamentId} AND channel = #{channel}
+      <choose>
+        <when test="matchId == null">
+          AND match_id IS NULL
+        </when>
+        <otherwise>
+          AND match_id = #{matchId}
+        </otherwise>
+      </choose>
+      <if test="channel == 'PLAYER_DM'">
+        AND ((from_user_id = #{userA} AND to_user_id = #{userB})
+          OR (from_user_id = #{userB} AND to_user_id = #{userA}))
+      </if>
+       ORDER BY created_at DESC
+       LIMIT #{limit}
+    ) recent ORDER BY created_at ASC
+  </select>
+
+</mapper>

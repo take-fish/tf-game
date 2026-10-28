@@ -8,16 +8,18 @@ import static org.mockito.Mockito.when;
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,19 +27,19 @@ import org.springframework.context.ApplicationEventPublisher;
 class MatchServiceDuelVisibilityTest {
 
     private MatchService service;
-    private MatchRepository matches;
-    private TournamentRepository tournaments;
+    private MatchMapper matches;
+    private TournamentMapper tournaments;
 
     @BeforeEach
     void setUp() {
-        matches = mock(MatchRepository.class);
-        tournaments = mock(TournamentRepository.class);
-        when(matches.findById("m1")).thenReturn(Optional.of(match()));
-        when(matches.latestRound("m1")).thenReturn(Optional.empty());
+        matches = mock(MatchMapper.class);
+        tournaments = mock(TournamentMapper.class);
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(match()));
+        when(matches.selectLatestRound("m1")).thenReturn(null);
         service = new MatchService(
                 matches,
                 tournaments,
-                mock(com.fishmatrix.game.store.BlindXiangqiRepository.class),
+                mock(GameBlindPieceMapper.class),
                 mock(GameSessionRegistry.class),
                 mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),
@@ -48,7 +50,8 @@ class MatchServiceDuelVisibilityTest {
 
     @Test
     void duelMatchIsHiddenFromThirdParty() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("DUEL")));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("DUEL")));
 
         assertThatThrownBy(() -> service.detailForUser(identity("u3"), "m1"))
                 .isInstanceOf(GameException.class)
@@ -57,7 +60,8 @@ class MatchServiceDuelVisibilityTest {
 
     @Test
     void duelParticipantSeesKind() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("DUEL")));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("DUEL")));
 
         MatchView view = service.detailForUser(identity("u1"), "m1");
 
@@ -66,7 +70,8 @@ class MatchServiceDuelVisibilityTest {
 
     @Test
     void tournamentMatchRemainsPublic() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("TOURNAMENT")));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("TOURNAMENT")));
 
         MatchView view = service.detailForUser(identity("u3"), "m1");
 
@@ -75,8 +80,8 @@ class MatchServiceDuelVisibilityTest {
 
     @Test
     void arenaRoundRejectsStones() {
-        when(matches.findById("m1")).thenReturn(Optional.of(runningMatch()));
-        when(matches.latestRound("m1")).thenReturn(Optional.of(arenaRound()));
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(runningMatch()));
+        when(matches.selectLatestRound("m1")).thenReturn(MatchConverters.toEntity(arenaRound()));
 
         assertThatThrownBy(() -> service.placeStone(identity("u1"), "m1", 0, 0))
                 .isInstanceOf(GameException.class)

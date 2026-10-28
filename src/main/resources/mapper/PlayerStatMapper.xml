@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.PlayerStatMapper">
+
+  <select id="selectTop" resultType="com.fishmatrix.game.entity.GamePlayerStatEntity">
+    SELECT user_id, nickname, championships, runner_ups, points
+      FROM game_player_stat
+     ORDER BY points DESC, championships DESC, runner_ups DESC, updated_at ASC
+     LIMIT #{limit}
+  </select>
+
+  <!-- 某一游戏的棋类排行榜。 -->
+  <insert id="insertGameStat">
+    INSERT INTO game_player_game_stat
+        (game_id, user_id, nickname, matches, wins, losses, points, championships, updated_at)
+    VALUES
+        (#{gameId}, #{userId}, #{nickname}, #{matches}, #{wins}, #{losses}, #{points},
+         #{championships}, #{updatedAt})
+  </insert>
+
+  <select id="selectTopByGame" resultType="com.fishmatrix.game.entity.GamePlayerGameStatEntity">
+    SELECT user_id, nickname, points, matches, wins, losses, championships
+      FROM game_player_game_stat
+     WHERE game_id = #{gameId}
+     ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectBestScore" resultType="java.lang.Long">
+    SELECT best_score FROM game_player_stat WHERE user_id = #{userId}
+  </select>
+
+  <select id="selectRank" resultType="java.lang.Long">
+    SELECT position FROM (
+      SELECT user_id,
+             ROW_NUMBER() OVER (
+                 ORDER BY points DESC, championships DESC,
+                          runner_ups DESC, updated_at ASC
+             ) AS position
+        FROM game_player_stat
+    ) ranked
+    WHERE user_id = #{userId}
+  </select>
+
+  <update id="updateNickname">
+    UPDATE game_player_stat SET nickname = #{nickname}, updated_at = #{now}
+     WHERE user_id = #{userId}
+  </update>
+
+  <update id="updateGameNickname">
+    UPDATE game_player_game_stat SET nickname = #{nickname}, updated_at = #{now}
+     WHERE game_id = #{gameId} AND user_id = #{userId}
+  </update>
+
+  <update id="addTitleStats">
+    UPDATE game_player_stat
+       SET championships = championships + #{championships},
+           runner_ups = runner_ups + #{runnerUps},
+           points = points + #{points},
+           nickname = #{nickname},
+           updated_at = #{now}
+     WHERE user_id = #{userId}
+  </update>
+
+  <update id="addMatchStats">
+    UPDATE game_player_stat
+       SET matches = matches + 1,
+           wins = wins + #{wins},
+           losses = losses + #{losses},
+           nickname = #{nickname},
+           updated_at = #{now}
+     WHERE user_id = #{userId}
+  </update>
+
+  <update id="addGameMatchStats">
+    UPDATE game_player_game_stat
+       SET matches = matches + 1,
+           wins = wins + #{wins},
+           losses = losses + #{losses},
+           points = points + #{points},
+           championships = championships + #{championships},
+           nickname = #{nickname},
+           updated_at = #{now}
+     WHERE game_id = #{gameId} AND user_id = #{userId}
+  </update>
+
+  <update id="raiseBestScoreValue">
+    UPDATE game_player_stat
+       SET best_score = GREATEST(best_score, #{score}), nickname = #{nickname},
+           updated_at = #{now}
+     WHERE user_id = #{userId}
+  </update>
+
+</mapper>

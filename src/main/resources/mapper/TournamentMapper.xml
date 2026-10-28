@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.TournamentMapper">
+
+  <select id="selectActiveById" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT * FROM game_tournament
+     WHERE id = #{id} AND deleted_at IS NULL
+  </select>
+
+  <insert id="insertPlayer">
+    INSERT INTO game_tournament_player
+        (tournament_id, user_id, nickname, seed, status, invited_at, responded_at)
+    VALUES
+        (#{tournamentId}, #{userId}, #{nickname}, #{seed}, #{status},
+         #{invitedAt}, #{respondedAt})
+  </insert>
+
+  <select id="selectRecent" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT * FROM game_tournament
+     WHERE kind = 'TOURNAMENT' AND deleted_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT #{limit}
+  </select>
+
+  <!-- 约战历史：只返回当前用户参与的一对一对局，按创建时间倒序。 -->
+  <select id="selectDuelsForUser" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT t.* FROM game_tournament t
+      JOIN game_tournament_player p ON p.tournament_id = t.id
+     WHERE t.kind = 'DUEL'
+       AND t.deleted_at IS NULL
+       AND p.user_id = #{userId}
+     ORDER BY t.created_at DESC
+     LIMIT #{limit}
+  </select>
+
+  <!-- 同一对用户在同一游戏下已有未结束约战时，避免重复发起；不同游戏可并行。 -->
+  <select id="existsActiveDuelBetween" resultType="boolean">
+    SELECT COUNT(*) FROM game_tournament t
+      JOIN game_tournament_player p1 ON p1.tournament_id = t.id
+      JOIN game_tournament_player p2 ON p2.tournament_id = t.id
+     WHERE t.kind = 'DUEL'
+       AND t.status IN ('INVITING', 'RUNNING')
+       AND t.deleted_at IS NULL
+       AND t.game_id = #{gameId}
+       AND p1.user_id = #{firstUserId}
+       AND p2.user_id = #{secondUserId}
+  </select>
+
+  <select id="selectRunning" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT * FROM game_tournament
+     WHERE status = 'RUNNING' AND deleted_at IS NULL
+     ORDER BY created_at ASC
+  </select>
+
+  <select id="selectInvitingExpired" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT * FROM game_tournament
+     WHERE status = 'INVITING' AND invite_deadline &lt;= #{now} AND deleted_at IS NULL
+     ORDER BY created_at ASC
+  </select>
+
+  <select id="selectPendingInvitations" resultType="com.fishmatrix.game.entity.GameTournamentEntity">
+    SELECT t.* FROM game_tournament t
+      JOIN game_tournament_player p ON p.tournament_id = t.id
+     WHERE p.user_id = #{userId}
+       AND p.status = 'INVITED'
+       AND t.kind = 'TOURNAMENT'
+       AND t.status = 'INVITING'
+       AND t.invite_deadline &gt; #{now}
+       AND t.deleted_at IS NULL
+     ORDER BY t.created_at DESC
+  </select>
+
+  <select id="selectPlayers" resultType="com.fishmatrix.game.entity.GameTournamentPlayerEntity">
+    SELECT * FROM game_tournament_player
+     WHERE tournament_id = #{tournamentId}
+     ORDER BY seed ASC, invited_at ASC
+  </select>
+
+  <select id="selectPlayer" resultType="com.fishmatrix.game.entity.GameTournamentPlayerEntity">
+    SELECT * FROM game_tournament_player
+     WHERE tournament_id = #{tournamentId} AND user_id = #{userId}
+  </select>
+
+  <select id="selectAcceptedPlayers"
+          resultType="com.fishmatrix.game.entity.GameTournamentPlayerEntity">
+    SELECT * FROM game_tournament_player
+     WHERE tournament_id = #{tournamentId} AND status = 'ACCEPTED'
+     ORDER BY seed ASC, invited_at ASC
+  </select>
+
+  <select id="selectAcceptedOrInvited"
+          resultType="com.fishmatrix.game.entity.GameTournamentPlayerEntity">
+    SELECT * FROM game_tournament_player
+     WHERE tournament_id = #{tournamentId} AND status IN ('ACCEPTED', 'INVITED')
+     ORDER BY seed ASC, invited_at ASC
+  </select>
+
+  <update id="accept">
+    UPDATE game_tournament_player
+       SET status = 'ACCEPTED', nickname = #{nickname}, responded_at = #{now}
+     WHERE tournament_id = #{tournamentId} AND user_id = #{userId} AND status = 'INVITED'
+  </update>
+
+  <update id="decline">
+    UPDATE game_tournament_player
+       SET status = 'DECLINED', responded_at = #{now}
+     WHERE tournament_id = #{tournamentId} AND user_id = #{userId} AND status = 'INVITED'
+  </update>
+
+  <update id="expireInvitations">
+    UPDATE game_tournament_player
+       SET status = 'DECLINED', responded_at = #{now}
+     WHERE tournament_id = #{tournamentId} AND status = 'INVITED'
+  </update>
+
+  <update id="updateSeed">
+    UPDATE game_tournament_player SET seed = #{seed}
+     WHERE tournament_id = #{tournamentId} AND user_id = #{userId}
+  </update>
+
+  <update id="start">
+    UPDATE game_tournament
+       SET status = 'RUNNING', bracket_type = #{bracketType}, total_rounds = #{totalRounds},
+           current_round = 1, started_at = #{now}
+     WHERE id = #{tournamentId} AND status = 'INVITING'
+  </update>
+
+  <update id="updateCurrentRound">
+    UPDATE game_tournament SET current_round = #{round} WHERE id = #{tournamentId}
+  </update>
+
+  <!-- 条件推进轮次，避免多个比赛同时结束时重复生成下一轮。 -->
+  <update id="advanceRound">
+    UPDATE game_tournament
+       SET current_round = #{nextRound}
+     WHERE id = #{tournamentId} AND status = 'RUNNING' AND current_round = #{expectedRound}
+  </update>
+
+  <!-- 积分赛结束，原子切换到页面淘汰赛。 -->
+  <update id="startPagePlayoff">
+    UPDATE game_tournament
+       SET bracket_type = 'PAGE_PLAYOFF', total_rounds = #{totalRounds}, current_round = #{firstRound}
+     WHERE id = #{tournamentId} AND status = 'RUNNING'
+       AND bracket_type = 'LEAGUE' AND current_round = #{expectedRound}
+  </update>
+
+  <!-- 旧赛事兼容：积分赛结束切换到阶梯决赛。 -->
+  <update id="startLadder">
+    UPDATE game_tournament
+       SET bracket_type = 'LADDER', total_rounds = #{totalRounds}, current_round = #{challengeRound}
+     WHERE id = #{tournamentId} AND status = 'RUNNING'
+       AND bracket_type = 'LEAGUE' AND current_round = #{expectedRound}
+  </update>
+
+  <update id="updateBracketType">
+    UPDATE game_tournament SET bracket_type = #{bracketType}, total_rounds = #{totalRounds}
+     WHERE id = #{tournamentId}
+  </update>
+
+  <update id="finish">
+    UPDATE game_tournament
+       SET status = 'FINISHED', champion_user_id = #{championUserId},
+           champion_nickname = #{championNickname},
+           runner_up_user_id = #{runnerUpUserId}, runner_up_nickname = #{runnerUpNickname},
+           finished_at = #{now}
+     WHERE id = #{tournamentId}
+  </update>
+
+  <update id="cancel">
+    UPDATE game_tournament
+       SET status = 'CANCELLED', finished_at = #{now}
+     WHERE id = #{tournamentId} AND status = 'INVITING'
+  </update>
+
+  <!-- 软删除：仅隐藏记录，进行中的赛事不允许删除。 -->
+  <update id="softDelete">
+    UPDATE game_tournament
+       SET deleted_at = #{now}
+     WHERE id = #{tournamentId} AND deleted_at IS NULL AND status &lt;&gt; 'RUNNING'
+  </update>
+
+</mapper>

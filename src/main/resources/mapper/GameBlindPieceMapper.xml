@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.GameBlindPieceMapper">
+
+  <select id="selectAlivePieces" resultType="com.fishmatrix.game.entity.GameBlindPieceEntity">
+    SELECT * FROM game_blind_piece
+     WHERE round_id = #{roundId} AND alive = TRUE
+     ORDER BY piece_id
+  </select>
+
+  <update id="reveal">
+    UPDATE game_blind_piece
+       SET revealed = TRUE
+     WHERE round_id = #{roundId} AND piece_id = #{pieceId} AND alive = TRUE AND revealed = FALSE
+  </update>
+
+  <update id="move">
+    UPDATE game_blind_piece
+       SET x = #{x}, y = #{y}
+     WHERE round_id = #{roundId} AND piece_id = #{pieceId} AND alive = TRUE AND revealed = TRUE
+  </update>
+
+  <update id="capture">
+    UPDATE game_blind_piece
+       SET alive = FALSE
+     WHERE round_id = #{roundId} AND piece_id = #{pieceId} AND alive = TRUE
+  </update>
+
+</mapper>

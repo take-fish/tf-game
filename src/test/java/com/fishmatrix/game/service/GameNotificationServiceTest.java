@@ -7,10 +7,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.NotificationConverters;
+import com.fishmatrix.game.entity.GameNotificationEntity;
+import com.fishmatrix.game.mapper.GameNotificationMapper;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.NotificationView;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.NotificationRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,13 +20,13 @@ import org.mockito.ArgumentCaptor;
 
 class GameNotificationServiceTest {
 
-    private NotificationRepository repository;
+    private GameNotificationMapper repository;
     private GameSessionRegistry registry;
     private GameNotificationService service;
 
     @BeforeEach
     void setUp() {
-        repository = mock(NotificationRepository.class);
+        repository = mock(GameNotificationMapper.class);
         registry = mock(GameSessionRegistry.class);
         service = new GameNotificationService(
                 repository, registry,
@@ -67,9 +69,10 @@ class GameNotificationServiceTest {
     }
 
     private NotificationView savedNotification() {
-        ArgumentCaptor<NotificationView> captor = ArgumentCaptor.forClass(NotificationView.class);
+        ArgumentCaptor<GameNotificationEntity> captor =
+                ArgumentCaptor.forClass(GameNotificationEntity.class);
         verify(repository).insert(captor.capture());
-        return captor.getValue();
+        return NotificationConverters.toView(captor.getValue());
     }
 
     private TournamentRecord tournament(String name, String championNickname) {

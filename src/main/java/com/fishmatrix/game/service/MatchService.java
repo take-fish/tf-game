@@ -3,18 +3,21 @@ package com.fishmatrix.game.service;
 import com.fishmatrix.game.arena.ArenaRoundFinishedEvent;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,8 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MatchService {
 
-    private final MatchRepository matches;
-    private final TournamentRepository tournaments;
+    private final MatchMapper matches;
+    private final TournamentMapper tournaments;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
     private final MatchSessionState state;
@@ -50,8 +53,8 @@ public class MatchService {
 
     @Autowired
     public MatchService(
-            MatchRepository matches,
-            TournamentRepository tournaments,
+            MatchMapper matches,
+            TournamentMapper tournaments,
             GameSessionRegistry registry,
             GameProperties properties,
             MatchSessionState state,
@@ -74,9 +77,9 @@ public class MatchService {
 
     /** 单元测试用：用原始依赖就地组装各协作组件。 */
     MatchService(
-            MatchRepository matches,
-            TournamentRepository tournaments,
-            BlindXiangqiRepository blindPieces,
+            MatchMapper matches,
+            TournamentMapper tournaments,
+            GameBlindPieceMapper blindPieces,
             GameSessionRegistry registry,
             GameNotificationService notifications,
             ApplicationEventPublisher publisher,
@@ -118,7 +121,7 @@ public class MatchService {
     }
 
     public List<MatchView> activeForUser(String userId) {
-        return matches.listReadyOrRunningByUser(userId).stream()
+        return MatchConverters.records(matches.selectActiveByUser(userId)).stream()
                 .map(match -> assembler.toView(match, assembler.tournamentOf(match), null))
                 .toList();
     }
@@ -141,7 +144,7 @@ public class MatchService {
             return detail(matchId);
         }
         if ("RUNNING".equals(match.status())) {
-            RoundRecord round = matches.latestRound(matchId).orElse(null);
+            RoundRecord round = findLatestRound(matchId);
             if (round == null || !"REST".equals(round.status())) {
                 throw GameException.conflict("GAME_MATCH_STARTED", "比赛已经开始");
             }
@@ -186,11 +189,11 @@ public class MatchService {
         String opponent = user.userId().equals(match.player1UserId())
                 ? match.player2UserId() : match.player1UserId();
         long now = System.currentTimeMillis();
-        RoundRecord round = matches.latestRound(matchId).orElse(null);
+        RoundRecord round = findLatestRound(matchId);
 
         if ("READY".equals(match.status()) || round == null) {
             if (matches.finishActive(match.id(), opponent,
-                    match.player1Score(), match.player2Score(), now) == 0) {
+                    match.player1Score(), match.player2Score(), SqlTime.toDateTime(now)) == 0) {
                 return detail(matchId);
             }
             settlement.finishByForfeit(match, opponent, "认输");
@@ -198,10 +201,10 @@ public class MatchService {
         }
         if ("REST".equals(round.status())) {
             if (matches.finishActive(match.id(), opponent,
-                    match.player1Score(), match.player2Score(), now) == 0) {
+                    match.player1Score(), match.player2Score(), SqlTime.toDateTime(now)) == 0) {
                 return detail(matchId);
             }
-            matches.finishRestRound(round.id(), now);
+            matches.finishRestRound(round.id(), SqlTime.toDateTime(now));
             settlement.finishByForfeit(match, opponent, "认输");
             return detail(matchId);
         }
@@ -223,7 +226,8 @@ public class MatchService {
     @Transactional
     public void tick() {
         long now = System.currentTimeMillis();
-        for (RoundRecord round : matches.listDueRest(now)) {
+        for (RoundRecord round : MatchConverters.roundRecords(
+                matches.selectDueRest(SqlTime.toDateTime(now)))) {
             try {
                 rounds.startNextGame(round.matchId());
             } catch (Exception exception) {
@@ -231,7 +235,7 @@ public class MatchService {
             }
         }
         long moveDeadline = properties.moveTimeoutSeconds() * 1000L;
-        for (RoundRecord round : matches.listRunningRounds()) {
+        for (RoundRecord round : MatchConverters.roundRecords(matches.selectRunningRounds())) {
             if (now - round.lastMoveAt() >= moveDeadline) {
                 try {
                     timeout(round);
@@ -244,7 +248,7 @@ public class MatchService {
     }
 
     private void timeout(RoundRecord round) {
-        MatchRecord match = matches.findById(round.matchId()).orElse(null);
+        MatchRecord match = findMatch(round.matchId());
         if (match == null || !"RUNNING".equals(match.status())
                 || round.turnUserId() == null) {
             return;
@@ -259,7 +263,7 @@ public class MatchService {
     }
 
     public void onDisconnect(String userId) {
-        for (MatchRecord match : matches.listReadyOrRunningByUser(userId)) {
+        for (MatchRecord match : MatchConverters.records(matches.selectActiveByUser(userId))) {
             if ("RUNNING".equals(match.status())) {
                 state.markDisconnect(match.id(), userId);
             }
@@ -280,7 +284,7 @@ public class MatchService {
             }
             String matchId = key.substring(0, separator);
             String userId = key.substring(separator + 1);
-            MatchRecord match = matches.findById(matchId).orElse(null);
+            MatchRecord match = findMatch(matchId);
             if (match == null || !"RUNNING".equals(match.status())) {
                 state.clearDisconnect(key);
                 continue;
@@ -289,7 +293,7 @@ public class MatchService {
                 state.clearDisconnect(key);
                 continue;
             }
-            RoundRecord round = matches.latestRound(matchId).orElse(null);
+            RoundRecord round = findLatestRound(matchId);
             if (round == null) {
                 state.clearDisconnect(key);
                 continue;
@@ -308,15 +312,29 @@ public class MatchService {
     @EventListener
     @Transactional
     public void onArenaRoundFinished(ArenaRoundFinishedEvent event) {
-        MatchRecord match = matches.findById(event.matchId()).orElse(null);
+        MatchRecord match = findMatch(event.matchId());
         if (match == null || !"RUNNING".equals(match.status())) {
             return;
         }
-        RoundRecord round = matches.findRound(event.roundId()).orElse(null);
+        RoundRecord round = Optional.ofNullable(matches.selectRound(event.roundId()))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
         if (round == null || !"RUNNING".equals(round.status())) {
             return;
         }
         settlement.finishGame(match, round, event.winnerUserId(), event.reason());
         settlement.closeRoundResources(event.roundId());
+    }
+
+    private MatchRecord findMatch(String matchId) {
+        return Optional.ofNullable(matches.selectById(matchId))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
+    }
+
+    private RoundRecord findLatestRound(String matchId) {
+        return Optional.ofNullable(matches.selectLatestRound(matchId))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
     }
 }

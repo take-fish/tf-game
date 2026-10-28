@@ -15,9 +15,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishmatrix.game.arena.ExerciseEngine;
 import com.fishmatrix.game.arena.ExerciseInput;
 import com.fishmatrix.game.config.ExerciseProperties;
+import com.fishmatrix.game.mapper.GameExerciseMapper;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
-import com.fishmatrix.game.store.ExerciseRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +28,13 @@ import org.springframework.context.ApplicationEventPublisher;
 class ExerciseServiceTest {
 
     private ExerciseProperties properties;
-    private ExerciseRepository repository;
+    private GameExerciseMapper repository;
     private ExerciseService service;
 
     @BeforeEach
     void setUp() {
         properties = new ExerciseProperties(true, 40, 80, 1, 180, 1, 4, 30, 380);
-        repository = mock(ExerciseRepository.class);
+        repository = mock(GameExerciseMapper.class);
         GameSessionRegistry registry = mock(GameSessionRegistry.class);
         when(registry.all()).thenReturn(List.of());
         service = new ExerciseService(
@@ -53,7 +53,7 @@ class ExerciseServiceTest {
 
         assertThat(started).containsEntry("status", "RUNNING");
         assertThat(started.get("state")).isNotNull();
-        verify(repository).insertRoom(any());
+        verify(repository).insert(any(com.fishmatrix.game.entity.GameExerciseRoomEntity.class));
         verify(repository, times(2)).insertMember(any());
         verify(repository).updateRoomState(anyString(), anyString(), anyInt(), anyString());
     }

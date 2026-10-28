@@ -2,6 +2,12 @@ package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.CreateDuelRequest;
 import com.fishmatrix.game.model.CreateTournamentRequest;
 import com.fishmatrix.game.model.GameException;
@@ -13,12 +19,10 @@ import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.model.TournamentView;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.PlayerStatRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
@@ -42,8 +46,8 @@ public class TournamentService {
     public static final String KIND_TOURNAMENT = "TOURNAMENT";
     public static final String KIND_DUEL = "DUEL";
 
-    private final TournamentRepository tournaments;
-    private final MatchRepository matches;
+    private final TournamentMapper tournaments;
+    private final MatchMapper matches;
     private final GameProperties properties;
     private final TournamentCreationService creation;
     private final TournamentBracketService bracket;
@@ -53,8 +57,8 @@ public class TournamentService {
 
     @Autowired
     public TournamentService(
-            TournamentRepository tournaments,
-            MatchRepository matches,
+            TournamentMapper tournaments,
+            MatchMapper matches,
             GameProperties properties,
             TournamentCreationService creation,
             TournamentBracketService bracket,
@@ -73,9 +77,9 @@ public class TournamentService {
 
     /** 单元测试用：用原始依赖就地组装各协作组件。 */
     TournamentService(
-            TournamentRepository tournaments,
-            MatchRepository matches,
-            PlayerStatRepository stats,
+            TournamentMapper tournaments,
+            MatchMapper matches,
+            PlayerStatMapper stats,
             GameSessionRegistry registry,
             GameNotificationService notifications,
             GameProperties properties) {
@@ -106,23 +110,24 @@ public class TournamentService {
     }
 
     public List<TournamentView> listDuelsForUser(String userId, int limit) {
-        return tournaments.listDuelsForUser(userId, limit).stream()
+        return TournamentConverters.records(
+                        tournaments.selectDuelsForUser(userId, clamp(limit))).stream()
                 .map(assembler::view)
                 .toList();
     }
 
     public TournamentView getDuel(GameIdentity user, String id) {
-        TournamentRecord duel = tournaments.findById(id)
+        TournamentRecord duel = findTournament(id)
                 .orElseThrow(() -> GameException.notFound("约战不存在"));
         if (!KIND_DUEL.equals(duel.kind())
-                || tournaments.findPlayer(id, user.userId()).isEmpty()) {
+                || tournaments.selectPlayer(id, user.userId()) == null) {
             throw GameException.notFound("约战不存在");
         }
         return assembler.view(duel);
     }
 
     public TournamentView getTournament(String id) {
-        TournamentRecord tournament = tournaments.findById(id)
+        TournamentRecord tournament = findTournament(id)
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
         if (!KIND_TOURNAMENT.equals(tournament.kind())) {
             throw GameException.notFound("赛事不存在");
@@ -131,7 +136,7 @@ public class TournamentService {
     }
 
     public List<TournamentView> list(int limit) {
-        return tournaments.listRecent(limit).stream()
+        return TournamentConverters.records(tournaments.selectRecent(clamp(limit))).stream()
                 .map(assembler::view)
                 .toList();
     }
@@ -142,9 +147,9 @@ public class TournamentService {
      */
     @Transactional
     public MatchView chooseGame(GameIdentity user, String matchId, String gameId) {
-        MatchRecord match = matches.findById(matchId)
+        MatchRecord match = findMatch(matchId)
                 .orElseThrow(() -> GameException.notFound("比赛不存在"));
-        TournamentRecord tournament = tournaments.findById(match.tournamentId())
+        TournamentRecord tournament = findTournament(match.tournamentId())
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
         if (!"RUNNING".equals(tournament.status())) {
             throw GameException.conflict("GAME_TOURNAMENT_CLOSED", "赛事尚未开始或已结束");
@@ -175,7 +180,7 @@ public class TournamentService {
         if (matches.updateFirstGame(matchId, selected) == 0) {
             throw GameException.conflict("GAME_MATCH_STARTED", "比赛已开始，不能改选剧本");
         }
-        MatchRecord updated = matches.findById(matchId).orElse(match);
+        MatchRecord updated = findMatch(matchId).orElse(match);
         broadcaster.broadcastTournament(tournament);
         log.info("赛事 {} 比赛 {} 首局剧本由 {} 改选为 {}",
                 tournament.id(), matchId, user.userId(), selected);
@@ -183,14 +188,16 @@ public class TournamentService {
     }
 
     public TournamentView get(String id) {
-        TournamentRecord tournament = tournaments.findById(id)
+        TournamentRecord tournament = findTournament(id)
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
         return assembler.view(tournament);
     }
 
     public List<TournamentView> invitations(String userId) {
         long now = System.currentTimeMillis();
-        return tournaments.pendingInvitations(userId, now).stream()
+        return TournamentConverters.records(
+                        tournaments.selectPendingInvitations(userId, SqlTime.toDateTime(now)))
+                .stream()
                 .map(assembler::view)
                 .toList();
     }
@@ -220,8 +227,9 @@ public class TournamentService {
         TournamentRecord tournament = requireInviting(tournamentId, kind);
         int updated = accept
                 ? tournaments.accept(tournamentId, user.userId(), user.nickname(),
-                        System.currentTimeMillis())
-                : tournaments.decline(tournamentId, user.userId(), System.currentTimeMillis());
+                        SqlTime.toDateTime(System.currentTimeMillis()))
+                : tournaments.decline(tournamentId, user.userId(),
+                        SqlTime.toDateTime(System.currentTimeMillis()));
         if (updated == 0) {
             throw GameException.conflict("GAME_INVITATION_CLOSED", "邀请已失效或已响应");
         }
@@ -240,7 +248,7 @@ public class TournamentService {
     }
 
     private TournamentView cancel(GameIdentity user, String tournamentId, String kind) {
-        TournamentRecord tournament = tournaments.findById(tournamentId)
+        TournamentRecord tournament = findTournament(tournamentId)
                 .orElseThrow(() -> GameException.notFound(KIND_DUEL.equals(kind)
                         ? "约战不存在" : "赛事不存在"));
         if (!kind.equals(tournament.kind())) {
@@ -254,8 +262,8 @@ public class TournamentService {
             throw GameException.conflict("GAME_TOURNAMENT_STARTED",
                     KIND_DUEL.equals(kind) ? "约战已开始，不能取消" : "赛事已开始，不能取消");
         }
-        tournaments.cancel(tournamentId, System.currentTimeMillis());
-        TournamentRecord cancelled = tournaments.findById(tournamentId).orElse(tournament);
+        tournaments.cancel(tournamentId, SqlTime.toDateTime(System.currentTimeMillis()));
+        TournamentRecord cancelled = findTournament(tournamentId).orElse(tournament);
         broadcaster.announceCancelled(cancelled);
         return get(tournamentId);
     }
@@ -263,7 +271,7 @@ public class TournamentService {
     /** 软删除：记录从大厅、邀请与详情中消失；进行中的赛事必须先结束。 */
     @Transactional
     public void delete(GameIdentity user, String tournamentId) {
-        TournamentRecord tournament = tournaments.findById(tournamentId)
+        TournamentRecord tournament = findTournament(tournamentId)
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
         if (!KIND_TOURNAMENT.equals(tournament.kind())) {
             throw GameException.notFound("赛事不存在");
@@ -274,7 +282,8 @@ public class TournamentService {
         if ("RUNNING".equals(tournament.status())) {
             throw GameException.conflict("GAME_TOURNAMENT_RUNNING", "赛事进行中，不能删除");
         }
-        if (tournaments.softDelete(tournamentId, System.currentTimeMillis()) == 0) {
+        if (tournaments.softDelete(tournamentId,
+                SqlTime.toDateTime(System.currentTimeMillis())) == 0) {
             throw GameException.notFound("赛事不存在");
         }
         registry.broadcastAll(Map.of(
@@ -288,14 +297,15 @@ public class TournamentService {
     @Transactional
     public void tickInvitations() {
         long now = System.currentTimeMillis();
-        for (TournamentRecord tournament : tournaments.listInvitingExpired(now)) {
+        for (TournamentRecord tournament : TournamentConverters.records(
+                tournaments.selectInvitingExpired(SqlTime.toDateTime(now)))) {
             try {
-                tournaments.expireInvitations(tournament.id(), now);
-                List<TournamentPlayerRecord> accepted =
-                        tournaments.acceptedPlayers(tournament.id());
+                tournaments.expireInvitations(tournament.id(), SqlTime.toDateTime(now));
+                List<TournamentPlayerRecord> accepted = TournamentConverters.playerRecords(
+                        tournaments.selectAcceptedPlayers(tournament.id()));
                 if (accepted.size() < properties.minPlayers()) {
-                    tournaments.cancel(tournament.id(), now);
-                    TournamentRecord cancelled = tournaments.findById(tournament.id())
+                    tournaments.cancel(tournament.id(), SqlTime.toDateTime(now));
+                    TournamentRecord cancelled = findTournament(tournament.id())
                             .orElse(tournament);
                     broadcaster.announceCancelled(cancelled);
                     log.info("{} {} 因接受人数不足 {} 取消",
@@ -349,7 +359,7 @@ public class TournamentService {
     }
 
     private TournamentRecord requireInviting(String tournamentId, String kind) {
-        TournamentRecord tournament = tournaments.findById(tournamentId)
+        TournamentRecord tournament = findTournament(tournamentId)
                 .orElseThrow(() -> GameException.notFound(KIND_DUEL.equals(kind)
                         ? "约战不存在" : "赛事不存在"));
         if (!kind.equals(tournament.kind())) {
@@ -360,5 +370,21 @@ public class TournamentService {
                     KIND_DUEL.equals(kind) ? "约战邀请已结束" : "赛事邀请已结束");
         }
         return tournament;
+    }
+
+    /** 详情与状态判断统一按软删除可见性读取。 */
+    private Optional<TournamentRecord> findTournament(String id) {
+        return Optional.ofNullable(tournaments.selectActiveById(id))
+                .map(TournamentConverters::toRecord);
+    }
+
+    private Optional<MatchRecord> findMatch(String id) {
+        return Optional.ofNullable(matches.selectById(id))
+                .map(MatchConverters::toRecord);
+    }
+
+    /** 列表接口的分页上限与迁移前一致。 */
+    private static int clamp(int limit) {
+        return Math.min(50, Math.max(1, limit));
     }
 }

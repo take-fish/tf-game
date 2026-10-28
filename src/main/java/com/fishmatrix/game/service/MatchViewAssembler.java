@@ -2,6 +2,13 @@ package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaService;
+import com.fishmatrix.game.converter.BlindPieceConverters;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.MoveConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.BlindPieceView;
 import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.MatchRecord;
@@ -9,11 +16,9 @@ import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.RoundView;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -24,15 +29,17 @@ import org.springframework.stereotype.Component;
 @Component
 class MatchViewAssembler {
 
-    private final MatchRepository matches;
-    private final TournamentRepository tournaments;
-    private final BlindXiangqiRepository blindPieces;
+    private final MatchMapper matches;
+    private final TournamentMapper tournaments;
+    private final GameBlindPieceMapper blindPieces;
     private final ArenaService arena;
 
     /** 比赛详情：附带最新一局的小局视图。 */
     MatchView detail(MatchRecord match) {
         TournamentRecord tournament = tournamentOf(match);
-        RoundRecord round = matches.latestRound(match.id()).orElse(null);
+        RoundRecord round = Optional.ofNullable(matches.selectLatestRound(match.id()))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
         return toView(match, tournament, round == null ? null : toRoundView(round, tournament));
     }
 
@@ -60,7 +67,8 @@ class MatchViewAssembler {
                         .toList();
         List<BlindPieceView> blindBoard = List.of();
         if (tournament != null && GameIds.BLIND_XIANGQI.equals(tournament.gameId())) {
-            blindBoard = blindPieces.listAlivePieces(round.id()).stream()
+            blindBoard = BlindPieceConverters.toPieces(
+                            blindPieces.selectAlivePieces(round.id())).stream()
                     .map(piece -> piece.revealed()
                             ? BlindPieceView.revealed(
                                     piece.x(), piece.y(), piece.color(), piece.type())
@@ -75,11 +83,14 @@ class MatchViewAssembler {
                 round.startedAt(), round.endsAt(), round.finishedAt(),
                 round.stateVersion(), arena.stateView(round),
                 ArenaGames.isArena(round.gameId())
-                        ? List.of() : matches.listMoves(round.id()),
+                        ? List.of()
+                        : MoveConverters.views(matches.selectMoves(round.id())),
                 blindBoard, round.blackUserId(), round.whiteUserId());
     }
 
     TournamentRecord tournamentOf(MatchRecord match) {
-        return tournaments.findById(match.tournamentId()).orElse(null);
+        return Optional.ofNullable(tournaments.selectActiveById(match.tournamentId()))
+                .map(TournamentConverters::toRecord)
+                .orElse(null);
     }
 }

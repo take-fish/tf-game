@@ -4,29 +4,31 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.entity.GameMatchEntity;
+import com.fishmatrix.game.entity.GameTournamentEntity;
+import com.fishmatrix.game.entity.GameTournamentPlayerEntity;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.CreateDuelRequest;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
-import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.model.TournamentView;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.PlayerStatRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSession;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,25 +36,25 @@ import org.mockito.ArgumentCaptor;
 
 class TournamentServiceDuelTest {
 
-    private TournamentRepository tournaments;
-    private MatchRepository matches;
+    private TournamentMapper tournaments;
+    private MatchMapper matches;
     private GameSessionRegistry registry;
     private TournamentService service;
 
     @BeforeEach
     void setUp() {
-        tournaments = mock(TournamentRepository.class);
-        matches = mock(MatchRepository.class);
+        tournaments = mock(TournamentMapper.class);
+        matches = mock(MatchMapper.class);
         registry = mock(GameSessionRegistry.class);
         service = new TournamentService(
                 tournaments,
                 matches,
-                mock(PlayerStatRepository.class),
+                mock(PlayerStatMapper.class),
                 registry,
                 mock(GameNotificationService.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"));
-        when(tournaments.listPlayers(any())).thenReturn(List.of());
-        when(matches.listByTournament(any())).thenReturn(List.of());
+        when(tournaments.selectPlayers(any())).thenReturn(List.of());
+        when(matches.selectByTournament(any())).thenReturn(List.of());
     }
 
     @Test
@@ -67,15 +69,17 @@ class TournamentServiceDuelTest {
         assertThat(view.format()).isEqualTo("BO3");
         assertThat(view.targetPlayers()).isEqualTo(2);
 
-        ArgumentCaptor<TournamentRecord> captor = ArgumentCaptor.forClass(TournamentRecord.class);
+        ArgumentCaptor<GameTournamentEntity> captor =
+                ArgumentCaptor.forClass(GameTournamentEntity.class);
         verify(tournaments).insert(captor.capture());
-        assertThat(captor.getValue().kind()).isEqualTo(TournamentService.KIND_DUEL);
-        assertThat(captor.getValue().targetPlayers()).isEqualTo(2);
+        TournamentRecord duel = TournamentConverters.toRecord(captor.getValue());
+        assertThat(duel.kind()).isEqualTo(TournamentService.KIND_DUEL);
+        assertThat(duel.targetPlayers()).isEqualTo(2);
 
-        ArgumentCaptor<TournamentPlayerRecord> players =
-                ArgumentCaptor.forClass(TournamentPlayerRecord.class);
-        verify(tournaments, org.mockito.Mockito.times(2)).insertPlayer(players.capture());
-        assertThat(players.getAllValues())
+        ArgumentCaptor<GameTournamentPlayerEntity> players =
+                ArgumentCaptor.forClass(GameTournamentPlayerEntity.class);
+        verify(tournaments, times(2)).insertPlayer(players.capture());
+        assertThat(players.getAllValues().stream().map(TournamentConverters::toRecord).toList())
                 .extracting(TournamentPlayerRecord::userId, TournamentPlayerRecord::status)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple("u1", "ACCEPTED"),
@@ -95,7 +99,7 @@ class TournamentServiceDuelTest {
                 .isInstanceOf(GameException.class)
                 .hasMessage("对方当前不在线，无法发起约战");
 
-        verify(tournaments, never()).insert(any());
+        verify(tournaments, never()).insert(any(GameTournamentEntity.class));
         verify(registry, never()).broadcastUsers(any(), any());
     }
 
@@ -137,17 +141,22 @@ class TournamentServiceDuelTest {
         List<TournamentPlayerRecord> players = List.of(
                 player("u1", "甲", 1, "ACCEPTED", now),
                 player("u2", "乙", 2, "ACCEPTED", now));
-        when(tournaments.findById("d1")).thenReturn(Optional.of(inviting), Optional.of(running));
-        when(tournaments.accept(eq("d1"), eq("u2"), any(), anyLong())).thenReturn(1);
-        when(tournaments.allAcceptedOrInvited("d1")).thenReturn(players);
-        when(tournaments.acceptedPlayers("d1")).thenReturn(players);
-        when(tournaments.start(eq("d1"), any(), anyInt(), anyLong())).thenReturn(1);
-        when(tournaments.listPlayers("d1")).thenReturn(players);
+        when(tournaments.selectActiveById("d1")).thenReturn(
+                TournamentConverters.toEntity(inviting),
+                TournamentConverters.toEntity(running));
+        when(tournaments.accept(eq("d1"), eq("u2"), any(), any())).thenReturn(1);
+        when(tournaments.selectAcceptedOrInvited("d1"))
+                .thenReturn(TournamentConverters.playerEntities(players));
+        when(tournaments.selectAcceptedPlayers("d1"))
+                .thenReturn(TournamentConverters.playerEntities(players));
+        when(tournaments.start(eq("d1"), any(), anyInt(), any())).thenReturn(1);
+        when(tournaments.selectPlayers("d1"))
+                .thenReturn(TournamentConverters.playerEntities(players));
 
         TournamentView view = service.acceptDuel(identity("u2"), "d1");
 
         assertThat(view.status()).isEqualTo("RUNNING");
-        verify(matches).insertMatch(any(MatchRecord.class));
+        verify(matches).insert(any(GameMatchEntity.class));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> frame = ArgumentCaptor.forClass(Map.class);
         verify(registry).broadcastUsers(eq(Set.of("u1", "u2")), frame.capture());
@@ -158,9 +167,10 @@ class TournamentServiceDuelTest {
     @Test
     void duelDetailIsVisibleOnlyToParticipants() {
         TournamentRecord duel = record("INVITING", 0);
-        when(tournaments.findById("d1")).thenReturn(Optional.of(duel));
-        when(tournaments.findPlayer("d1", "u1")).thenReturn(Optional.of(
-                player("u1", "甲", 1, "ACCEPTED", 1_000L)));
+        when(tournaments.selectActiveById("d1"))
+                .thenReturn(TournamentConverters.toEntity(duel));
+        when(tournaments.selectPlayer("d1", "u1")).thenReturn(
+                TournamentConverters.toEntity(player("u1", "甲", 1, "ACCEPTED", 1_000L)));
 
         assertThat(service.getDuel(identity("u1"), "d1").kind())
                 .isEqualTo(TournamentService.KIND_DUEL);

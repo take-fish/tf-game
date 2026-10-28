@@ -1,6 +1,14 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.arena.ArenaGames;
+import com.fishmatrix.game.converter.BlindPieceConverters;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.MoveConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.BlindColor;
 import com.fishmatrix.game.model.BlindPieceType;
 import com.fishmatrix.game.model.GameException;
@@ -12,13 +20,11 @@ import com.fishmatrix.game.model.MoveView;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.service.BlindXiangqiEngine.Piece;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -29,9 +35,9 @@ import org.springframework.stereotype.Service;
 @Service
 class MatchMoveService {
 
-    private final MatchRepository matches;
-    private final TournamentRepository tournaments;
-    private final BlindXiangqiRepository blindPieces;
+    private final MatchMapper matches;
+    private final TournamentMapper tournaments;
+    private final GameBlindPieceMapper blindPieces;
     private final MatchBroadcaster broadcaster;
     private final MatchViewAssembler assembler;
     private final MatchSettlementService settlement;
@@ -48,7 +54,8 @@ class MatchMoveService {
         if (!"RUNNING".equals(match.status())) {
             throw GameException.conflict("GAME_MATCH_NOT_RUNNING", "比赛尚未开始");
         }
-        RoundRecord round = matches.latestRound(matchId)
+        RoundRecord round = Optional.ofNullable(matches.selectLatestRound(matchId))
+                .map(MatchConverters::toRecord)
                 .orElseThrow(() -> GameException.conflict("GAME_ROUND_MISSING", "对局尚未开始"));
         if (!"RUNNING".equals(round.status())) {
             throw GameException.conflict("GAME_ROUND_NOT_RUNNING", "当前小局不在对弈中");
@@ -60,7 +67,7 @@ class MatchMoveService {
             throw GameException.forbidden("还没轮到你落子");
         }
 
-        List<MoveView> moves = matches.listMoves(round.id());
+        List<MoveView> moves = MoveConverters.views(matches.selectMoves(round.id()));
         int[][] board = GomokuEngine.board(moves, round.blackUserId());
         if (board[x][y] != GomokuEngine.EMPTY) {
             throw GameException.conflict("GAME_MOVE_OCCUPIED", "该位置已有棋子");
@@ -69,11 +76,12 @@ class MatchMoveService {
         long now = System.currentTimeMillis();
         int nextMoveNo = round.moveCount() + 1;
         int updated = matches.updateTurnAndCount(
-                round.id(), round.moveCount(), nextMoveNo, opponent, now);
+                round.id(), round.moveCount(), nextMoveNo, opponent, SqlTime.toDateTime(now));
         if (updated == 0) {
             throw GameException.conflict("GAME_MOVE_CONFLICT", "落子冲突，请刷新棋盘");
         }
-        matches.insertMove(round.id(), nextMoveNo, user.userId(), x, y, now);
+        matches.insertMove(MoveConverters.toEntity(
+                round.id(), nextMoveNo, user.userId(), x, y, now));
 
         board[x][y] = user.userId().equals(round.blackUserId())
                 ? GomokuEngine.BLACK : GomokuEngine.WHITE;
@@ -148,7 +156,8 @@ class MatchMoveService {
         int nextMoveNo = round.moveCount() + 1;
         String opponent = opponentOf(match, user.userId());
         if (matches.updateTurnAndCount(
-                round.id(), round.moveCount(), nextMoveNo, opponent, now) == 0) {
+                round.id(), round.moveCount(), nextMoveNo, opponent,
+                SqlTime.toDateTime(now)) == 0) {
             throw GameException.conflict("GAME_MOVE_CONFLICT", "操作冲突，请刷新棋盘");
         }
 
@@ -166,10 +175,10 @@ class MatchMoveService {
             }
         }
 
-        matches.insertMove(round.id(), nextMoveNo, user.userId(), toX, toY, action,
-                fromX, fromY, piece.type().name(), piece.color().name(),
+        matches.insertMove(MoveConverters.toEntity(round.id(), nextMoveNo, user.userId(),
+                toX, toY, action, fromX, fromY, piece.type().name(), piece.color().name(),
                 captured == null ? null : captured.type().name(),
-                captured == null ? null : captured.color().name(), now);
+                captured == null ? null : captured.color().name(), now));
 
         List<Piece> nextPieces = new ArrayList<>(state.pieces().size());
         for (Piece current : state.pieces()) {
@@ -221,7 +230,9 @@ class MatchMoveService {
     }
 
     private TournamentRecord tournamentOf(MatchRecord match) {
-        return tournaments.findById(match.tournamentId()).orElse(null);
+        return Optional.ofNullable(tournaments.selectActiveById(match.tournamentId()))
+                .map(TournamentConverters::toRecord)
+                .orElse(null);
     }
 
     private void requireGomoku(MatchRecord match) {
@@ -240,7 +251,8 @@ class MatchMoveService {
         if (!"RUNNING".equals(match.status())) {
             throw GameException.conflict("GAME_MATCH_NOT_RUNNING", "比赛尚未开始");
         }
-        RoundRecord round = matches.latestRound(matchId)
+        RoundRecord round = Optional.ofNullable(matches.selectLatestRound(matchId))
+                .map(MatchConverters::toRecord)
                 .orElseThrow(() -> GameException.conflict("GAME_ROUND_MISSING", "对局尚未开始"));
         if (!"RUNNING".equals(round.status())) {
             throw GameException.conflict("GAME_ROUND_NOT_RUNNING", "当前小局不在对弈中");
@@ -248,7 +260,8 @@ class MatchMoveService {
         if (!user.userId().equals(round.turnUserId())) {
             throw GameException.forbidden("还没轮到你操作");
         }
-        return new BlindRound(match, round, blindPieces.listAlivePieces(round.id()));
+        return new BlindRound(match, round,
+                BlindPieceConverters.toPieces(blindPieces.selectAlivePieces(round.id())));
     }
 
     /** 盲棋沿用 black_user_id 表示红方（先手），white_user_id 表示黑方。 */
