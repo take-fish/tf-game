@@ -26,9 +26,9 @@ class PlayerStatRepositoryTest {
         String first = userId();
         String second = userId();
 
-        stats.recordGameMatch("blind-xiangqi", first, "盲棋甲", true, false);
-        stats.recordGameMatch("blind-xiangqi", second, "盲棋乙", false, false);
-        stats.recordGameMatch("heatmap-gomoku", first, "五子甲", false, false);
+        stats.addGameMatch("blind-xiangqi", first, "盲棋甲", 1, 0, 3, 0);
+        stats.addGameMatch("blind-xiangqi", second, "盲棋乙", 0, 1, 1, 0);
+        stats.addGameMatch("heatmap-gomoku", first, "五子甲", 0, 1, 1, 0);
 
         LeaderboardEntry blindFirst = find(stats.topByGame("blind-xiangqi", 50), first);
         assertThat(blindFirst.points()).isEqualTo(3);

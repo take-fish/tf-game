@@ -268,11 +268,13 @@ class TournamentBracketService {
         String winnerNickname = winnerIsPlayer1 ? match.player1Nickname() : match.player2Nickname();
         String loserId = winnerIsPlayer1 ? match.player2UserId() : match.player1UserId();
         String loserNickname = winnerIsPlayer1 ? match.player2Nickname() : match.player1Nickname();
-        stats.recordMatch(winnerId, winnerNickname, true, champion);
-        stats.recordGameMatch(gameId, winnerId, winnerNickname, true, champion);
+        stats.addMatch(winnerId, winnerNickname, 1, 0);
+        stats.addGameMatch(gameId, winnerId, winnerNickname, 1, 0,
+                PlayerStatRules.gameMatchPoints(true, champion), champion ? 1 : 0);
         if (loserId != null) {
-            stats.recordMatch(loserId, loserNickname, false, false);
-            stats.recordGameMatch(gameId, loserId, loserNickname, false, false);
+            stats.addMatch(loserId, loserNickname, 0, 1);
+            stats.addGameMatch(gameId, loserId, loserNickname, 0, 1,
+                    PlayerStatRules.gameMatchPoints(false, false), 0);
         }
     }
 
@@ -294,10 +296,10 @@ class TournamentBracketService {
                 runnerUpId, runnerUpNickname, now);
         if (TournamentService.KIND_TOURNAMENT.equals(tournament.kind())) {
             if (championId != null) {
-                stats.recordTitle(championId, championNickname, true);
+                stats.addTitle(championId, championNickname, 1, 0, PlayerStatRules.titlePoints(true));
             }
             if (runnerUpId != null) {
-                stats.recordTitle(runnerUpId, runnerUpNickname, false);
+                stats.addTitle(runnerUpId, runnerUpNickname, 0, 1, PlayerStatRules.titlePoints(false));
             }
         }
         TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);
@@ -324,9 +326,9 @@ class TournamentBracketService {
                 runnerUp == null ? null : runnerUp.userId(),
                 runnerUp == null ? null : runnerUp.nickname(), now);
         if (TournamentService.KIND_TOURNAMENT.equals(tournament.kind())) {
-            stats.recordTitle(champion.userId(), champion.nickname(), true);
+            stats.addTitle(champion.userId(), champion.nickname(), 1, 0, PlayerStatRules.titlePoints(true));
             if (runnerUp != null) {
-                stats.recordTitle(runnerUp.userId(), runnerUp.nickname(), false);
+                stats.addTitle(runnerUp.userId(), runnerUp.nickname(), 0, 1, PlayerStatRules.titlePoints(false));
             }
         }
         TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);

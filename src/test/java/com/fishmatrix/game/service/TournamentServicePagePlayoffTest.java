@@ -128,8 +128,8 @@ class TournamentServicePagePlayoffTest {
 
         verify(tournaments).finish(
                 eq("t1"), eq("u2"), eq("乙"), eq("u1"), eq("甲"), anyLong());
-        verify(stats).recordTitle("u2", "乙", true);
-        verify(stats).recordTitle("u1", "甲", false);
+        verify(stats).addTitle("u2", "乙", 1, 0, PlayerStatRules.CHAMPION_POINTS);
+        verify(stats).addTitle("u1", "甲", 0, 1, PlayerStatRules.RUNNER_UP_POINTS);
     }
 
     private GameIdentity identity(String userId) {
