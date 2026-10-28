@@ -7,12 +7,16 @@ import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.ChatRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
+import com.fishmatrix.game.converter.ChatConverters;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameChatMessageMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +34,9 @@ public class GameChatService {
     public static final String CHANNEL_PUBLIC = "PUBLIC";
     public static final String CHANNEL_PLAYER_DM = "PLAYER_DM";
 
-    private final ChatRepository chatRepository;
-    private final TournamentRepository tournaments;
-    private final MatchRepository matches;
+    private final GameChatMessageMapper chatMessages;
+    private final TournamentMapper tournaments;
+    private final MatchMapper matches;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
 
@@ -79,7 +83,7 @@ public class GameChatService {
                 UUID.randomUUID().toString(), tournament.id(), matchId, channel,
                 user.userId(), user.nickname(), toUserId, content,
                 System.currentTimeMillis());
-        chatRepository.insert(message);
+        chatMessages.insert(ChatConverters.toEntity(message));
 
         Map<String, Object> frame = Map.of("type", "game_chat", "message", message);
         if (CHANNEL_PLAYER_DM.equals(channel)) {
@@ -98,6 +102,7 @@ public class GameChatService {
         rejectDuel(tournament);
         String normalized = normalizeChannel(channel);
         String normalizedMatchId = blankToNull(matchId);
+        int safeLimit = Math.min(200, Math.max(1, limit));
         if (CHANNEL_PLAYER_DM.equals(normalized)) {
             if (normalizedMatchId == null) {
                 throw GameException.badRequest("GAME_CHAT_INVALID", "选手私聊必须指定比赛");
@@ -105,22 +110,23 @@ public class GameChatService {
             MatchRecord match = requireMatch(normalizedMatchId);
             requireParticipant(match, user.userId());
             String peer = requireOpponent(match, user.userId());
-            return chatRepository.history(
+            return ChatConverters.views(chatMessages.selectHistory(
                     tournament.id(), match.id(), CHANNEL_PLAYER_DM,
-                    user.userId(), peer, limit);
+                    user.userId(), peer, safeLimit));
         }
         if (normalizedMatchId != null) {
             requireMatch(normalizedMatchId);
         }
-        return chatRepository.history(
-                tournament.id(), normalizedMatchId, CHANNEL_PUBLIC, null, null, limit);
+        return ChatConverters.views(chatMessages.selectHistory(
+                tournament.id(), normalizedMatchId, CHANNEL_PUBLIC, null, null, safeLimit));
     }
 
     private TournamentRecord requireTournament(String id) {
         if (id == null || id.isBlank()) {
             throw GameException.badRequest("GAME_CHAT_INVALID", "缺少赛事 ID");
         }
-        return tournaments.findById(id)
+        return Optional.ofNullable(tournaments.selectActiveById(id))
+                .map(TournamentConverters::toRecord)
                 .orElseThrow(() -> GameException.notFound("赛事不存在"));
     }
 
@@ -132,7 +138,8 @@ public class GameChatService {
     }
 
     private MatchRecord requireMatch(String id) {
-        return matches.findById(id)
+        return Optional.ofNullable(matches.selectById(id))
+                .map(MatchConverters::toRecord)
                 .orElseThrow(() -> GameException.notFound("比赛不存在"));
     }
 

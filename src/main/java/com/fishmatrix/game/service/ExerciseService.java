@@ -7,12 +7,14 @@ import com.fishmatrix.game.arena.ExerciseEngine.ExerciseState;
 import com.fishmatrix.game.arena.ExerciseEngine.PlayerSeed;
 import com.fishmatrix.game.arena.ExerciseInput;
 import com.fishmatrix.game.config.ExerciseProperties;
+import com.fishmatrix.game.converter.ExerciseConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.mapper.GameExerciseMapper;
+import com.fishmatrix.game.model.ExerciseMemberRecord;
+import com.fishmatrix.game.model.ExerciseResultRecord;
+import com.fishmatrix.game.model.ExerciseRoomRecord;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
-import com.fishmatrix.game.store.ExerciseRepository;
-import com.fishmatrix.game.store.ExerciseRepository.MemberRow;
-import com.fishmatrix.game.store.ExerciseRepository.ResultRow;
-import com.fishmatrix.game.store.ExerciseRepository.RoomRow;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -51,7 +53,7 @@ public class ExerciseService {
 
     private final ExerciseEngine engine;
     private final ExerciseProperties properties;
-    private final ExerciseRepository repository;
+    private final GameExerciseMapper repository;
     private final ExerciseRoomRegistry rooms;
     private final ExerciseBroadcaster broadcaster;
     private final ExercisePersister persister;
@@ -61,7 +63,7 @@ public class ExerciseService {
     public ExerciseService(
             ExerciseEngine engine,
             ExerciseProperties properties,
-            ExerciseRepository repository,
+            GameExerciseMapper repository,
             ExerciseRoomRegistry rooms,
             ExerciseBroadcaster broadcaster,
             ExercisePersister persister,
@@ -79,7 +81,7 @@ public class ExerciseService {
     ExerciseService(
             ExerciseEngine engine,
             ExerciseProperties properties,
-            ExerciseRepository repository,
+            GameExerciseMapper repository,
             GameSessionRegistry registry,
             ApplicationEventPublisher publisher,
             ObjectMapper objectMapper) {
@@ -141,10 +143,11 @@ public class ExerciseService {
                 user.userId(), user.nickname(), null, true, false, now));
         rooms.rooms.put(room.id, room);
         synchronized (room.lock) {
-            repository.insertRoom(ExercisePersister.row(room, null));
+            repository.insert(ExerciseConverters.toEntity(ExercisePersister.row(room, null)));
             room.persisted = true;
             for (Member member : room.members.values()) {
-                repository.insertMember(ExercisePersister.memberRow(room.id, member));
+                repository.insertMember(ExerciseConverters.toEntity(
+                        ExercisePersister.memberRow(room.id, member)));
             }
             if (ExerciseEngine.MODE_TRAINING.equals(normalized)) {
                 lifecycle.start(room, now);
@@ -197,7 +200,8 @@ public class ExerciseService {
                     user.userId(), user.nickname(), null, false, false,
                     System.currentTimeMillis());
             room.members.put(user.userId(), member);
-            repository.insertMember(ExercisePersister.memberRow(room.id, member));
+            repository.insertMember(ExerciseConverters.toEntity(
+                    ExercisePersister.memberRow(room.id, member)));
             broadcaster.broadcastRoom(room);
             return broadcaster.roomView(room, user.userId());
         }
@@ -237,7 +241,8 @@ public class ExerciseService {
             long now = System.currentTimeMillis();
             member.leftAt = now;
             if (room.persisted) {
-                repository.updateMemberLeft(room.id, member.userId, now);
+                repository.updateMemberLeft(room.id, member.userId,
+                        SqlTime.toDateTime(now));
             }
             if (STATUS_WAITING.equals(room.status)) {
                 room.members.remove(member.userId);
@@ -247,7 +252,8 @@ public class ExerciseService {
                 if (room.members.isEmpty()) {
                     rooms.rooms.remove(room.id, room);
                     if (room.persisted) {
-                        repository.cancelRoom(room.id, "房主离开", now);
+                        repository.cancelRoom(room.id, "房主离开",
+                                SqlTime.toDateTime(now));
                     }
                     return;
                 }
@@ -281,13 +287,15 @@ public class ExerciseService {
                 Member member = room.members.remove(userId);
                 if (member != null && room.persisted) {
                     repository.updateMemberLeft(
-                            room.id, userId, System.currentTimeMillis());
+                            room.id, userId,
+                            SqlTime.toDateTime(System.currentTimeMillis()));
                 }
                 if (room.members.isEmpty()) {
                     rooms.rooms.remove(room.id, room);
                     if (room.persisted) {
                         repository.cancelRoom(
-                                room.id, "成员断线", System.currentTimeMillis());
+                                room.id, "成员断线",
+                                SqlTime.toDateTime(System.currentTimeMillis()));
                     }
                 } else {
                     if (userId.equals(room.ownerUserId)) {
@@ -360,8 +368,9 @@ public class ExerciseService {
         }
     }
 
-    public List<ResultRow> recentResults(int limit) {
-        return repository.listRecentResults(clamp(limit, 1, 100));
+    public List<ExerciseResultRecord> recentResults(int limit) {
+        return ExerciseConverters.resultRecords(
+                repository.selectRecentResults(clamp(limit, 1, 100)));
     }
 
     private void rateLimit(Room room, String userId, long now) {
@@ -406,7 +415,8 @@ public class ExerciseService {
                     && now - room.createdAt > WAITING_TTL_MILLIS) {
                 synchronized (room.lock) {
                     if (rooms.rooms.remove(room.id, room) && room.persisted) {
-                        repository.cancelRoom(room.id, "房间超时未开始", now);
+                        repository.cancelRoom(room.id, "房间超时未开始",
+                                SqlTime.toDateTime(now));
                     }
                     broadcaster.sendToRoom(room, Map.of(
                             "type", "exercise_finished",
@@ -424,7 +434,8 @@ public class ExerciseService {
             return;
         }
         try {
-            for (RoomRow row : repository.listRunningRooms()) {
+            for (ExerciseRoomRecord row : ExerciseConverters.roomRecords(
+                    repository.selectRunningRooms())) {
                 if (rooms.rooms.containsKey(row.id())) {
                     continue;
                 }
@@ -438,7 +449,8 @@ public class ExerciseService {
                 room.state = state;
                 room.persisted = true;
                 room.lastSnapshotAt = System.currentTimeMillis();
-                for (MemberRow member : repository.listMembers(row.id())) {
+                for (ExerciseMemberRecord member : ExerciseConverters.memberRecords(
+                        repository.selectMembers(row.id()))) {
                     room.members.put(member.userId(), new Member(
                             member.userId(), member.nickname(), member.team(),
                             member.ready(), member.bot(), member.joinedAt()));

@@ -3,17 +3,22 @@ package com.fishmatrix.game.service;
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.arena.ExerciseEngine;
+import com.fishmatrix.game.converter.BlindPieceConverters;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.BlindLayout;
 import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.service.BlindXiangqiEngine.Piece;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.RequiredArgsConstructor;
@@ -26,9 +31,9 @@ import org.springframework.stereotype.Service;
 @Service
 class MatchRoundService {
 
-    private final MatchRepository matches;
-    private final TournamentRepository tournaments;
-    private final BlindXiangqiRepository blindPieces;
+    private final MatchMapper matches;
+    private final TournamentMapper tournaments;
+    private final GameBlindPieceMapper blindPieces;
     private final ArenaService arena;
     private final ExerciseService exercise;
     private final GameNotificationService notifications;
@@ -40,7 +45,7 @@ class MatchRoundService {
     /** 双方都准备后开第一局：随机先手。 */
     void startFirstGame(MatchRecord match) {
         long now = System.currentTimeMillis();
-        if (matches.start(match.id(), now) == 0) {
+        if (matches.start(match.id(), SqlTime.toDateTime(now)) == 0) {
             return;
         }
         boolean player1Black = ThreadLocalRandom.current().nextBoolean();
@@ -54,16 +59,20 @@ class MatchRoundService {
 
     /** 双方都点了“立即开始”，或 60 秒休息结束，进入下一小局。 */
     void startNextGame(String matchId) {
-        MatchRecord match = matches.findById(matchId).orElse(null);
+        MatchRecord match = Optional.ofNullable(matches.selectById(matchId))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
         if (match == null || !"RUNNING".equals(match.status())) {
             return;
         }
-        RoundRecord previous = matches.latestRound(matchId).orElse(null);
+        RoundRecord previous = Optional.ofNullable(matches.selectLatestRound(matchId))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
         if (previous == null || !"REST".equals(previous.status())) {
             return;
         }
         long now = System.currentTimeMillis();
-        if (matches.finishRestRound(previous.id(), now) == 0) {
+        if (matches.finishRestRound(previous.id(), SqlTime.toDateTime(now)) == 0) {
             return;
         }
         // 每局换先；拓扑攻防中先手同时也交换攻守身份。
@@ -109,7 +118,7 @@ class MatchRoundService {
                 roundId, match.id(), gameId, gameNo, "RUNNING",
                 black, white, attacker, arenaGame || exerciseGame ? null : black,
                 null, 0, now, null, "", stateJson, 0, now, endsAt, null);
-        matches.insertRound(round);
+        matches.insertRound(MatchConverters.toEntity(round));
         TournamentRecord tournament = assembler.tournamentOf(match);
         if (tournament != null && GameIds.BLIND_XIANGQI.equals(gameId)) {
             BlindLayout layout = BlindLayout.parse(tournament.blindLayout());
@@ -118,7 +127,7 @@ class MatchRoundService {
                             UUID.randomUUID().toString(), placement.color(), placement.type(),
                             placement.x(), placement.y(), false))
                     .toList();
-            blindPieces.insertPieces(roundId, pieces);
+            blindPieces.insert(BlindPieceConverters.toEntities(roundId, pieces));
         }
     }
 
@@ -151,18 +160,23 @@ class MatchRoundService {
     }
 
     private void notifyFinalStart(MatchRecord match) {
-        tournaments.findById(match.tournamentId()).ifPresent(tournament -> {
-            // 约战没有全站播报，也不产生冠军通知。
-            if (TournamentService.KIND_DUEL.equals(tournament.kind())) {
-                return;
-            }
-            boolean finalStage = BracketPlanner.STAGE_KNOCKOUT.equals(match.stage())
-                    || BracketPlanner.STAGE_LADDER.equals(match.stage())
-                    || BracketPlanner.STAGE_PAGE_PLAYOFF.equals(match.stage());
-            if (finalStage && match.roundNo() == tournament.totalRounds()) {
-                notifications.publishFinalStart(tournament, match);
-            }
-        });
+        TournamentRecord found = Optional.ofNullable(
+                        tournaments.selectActiveById(match.tournamentId()))
+                .map(TournamentConverters::toRecord)
+                .orElse(null);
+        if (found == null) {
+            return;
+        }
+        // 约战没有全站播报，也不产生冠军通知。
+        if (TournamentService.KIND_DUEL.equals(found.kind())) {
+            return;
+        }
+        boolean finalStage = BracketPlanner.STAGE_KNOCKOUT.equals(match.stage())
+                || BracketPlanner.STAGE_LADDER.equals(match.stage())
+                || BracketPlanner.STAGE_PAGE_PLAYOFF.equals(match.stage());
+        if (finalStage && match.roundNo() == found.totalRounds()) {
+            notifications.publishFinalStart(found, match);
+        }
     }
 
     private static String nickname(String nickname, String userId) {

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.GameNotificationMapper">
+
+  <!-- 同一场比赛的同类通知只发一次，避免决赛/冠军重复弹窗。 -->
+  <select id="exists" resultType="boolean">
+    SELECT COUNT(*) FROM game_notification
+     WHERE type = #{type} AND tournament_id = #{tournamentId}
+    <choose>
+      <when test="matchId == null">
+        AND match_id IS NULL
+      </when>
+      <otherwise>
+        AND match_id = #{matchId}
+      </otherwise>
+    </choose>
+  </select>
+
+  <!-- 轮询兜底：只返回尚未过期的通知，按时间升序。 -->
+  <select id="selectRecent" resultType="com.fishmatrix.game.entity.GameNotificationEntity">
+    SELECT * FROM game_notification
+     WHERE created_at &gt; #{after} AND expires_at &gt; #{now}
+     ORDER BY created_at ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectLatest" resultType="com.fishmatrix.game.entity.GameNotificationEntity">
+    SELECT * FROM (
+      SELECT * FROM game_notification
+       WHERE expires_at &gt; #{now}
+       ORDER BY created_at DESC
+       LIMIT #{limit}
+    ) recent ORDER BY created_at ASC
+  </select>
+
+</mapper>

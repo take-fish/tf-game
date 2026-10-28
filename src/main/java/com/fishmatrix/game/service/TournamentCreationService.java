@@ -2,6 +2,8 @@ package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.BlindLayout;
 import com.fishmatrix.game.model.CreateDuelRequest;
 import com.fishmatrix.game.model.CreateTournamentRequest;
@@ -12,7 +14,6 @@ import com.fishmatrix.game.model.PlayerRef;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.model.TournamentView;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -32,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class TournamentCreationService {
 
-    private final TournamentRepository tournaments;
+    private final TournamentMapper tournaments;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
     private final TournamentViewAssembler assembler;
@@ -75,16 +76,16 @@ class TournamentCreationService {
                 now + properties.inviteTimeoutSeconds() * 1000L,
                 0, 0, null, null, null, null, now, null, null,
                 blindLayout == null ? null : blindLayout.name(), gamePool);
-        tournaments.insert(tournament);
+        tournaments.insert(TournamentConverters.toEntity(tournament));
 
         Set<String> invitedIds = new LinkedHashSet<>();
         int inviteOrder = 1;
         for (PlayerRef ref : refs) {
             boolean self = ref.userId().equals(creator.userId());
-            tournaments.insertPlayer(new TournamentPlayerRecord(
+            tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
                     id, ref.userId(), ref.nickname(), 0,
                     self ? "ACCEPTED" : "INVITED",
-                    now, self ? now : null));
+                    now, self ? now : null)));
             if (!self) {
                 invitedIds.add(ref.userId());
             } else {
@@ -151,11 +152,11 @@ class TournamentCreationService {
                 now + properties.inviteTimeoutSeconds() * 1000L,
                 0, 0, null, null, null, null, now, null, null,
                 blindLayout == null ? null : blindLayout.name(), List.of());
-        tournaments.insert(duel);
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, creator.userId(), creator.nickname(), 1, "ACCEPTED", now, now));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, opponentId, opponentNickname, 2, "INVITED", now, null));
+        tournaments.insert(TournamentConverters.toEntity(duel));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, creator.userId(), creator.nickname(), 1, "ACCEPTED", now, now)));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, opponentId, opponentNickname, 2, "INVITED", now, null)));
 
         TournamentView view = assembler.view(duel);
         registry.broadcastUsers(Set.of(opponentId), Map.of(

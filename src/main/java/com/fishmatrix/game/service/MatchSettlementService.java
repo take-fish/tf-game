@@ -3,15 +3,19 @@ package com.fishmatrix.game.service;
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.MatchFinishedEvent;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -24,8 +28,8 @@ import org.springframework.stereotype.Service;
 @Service
 class MatchSettlementService {
 
-    private final MatchRepository matches;
-    private final TournamentRepository tournaments;
+    private final MatchMapper matches;
+    private final TournamentMapper tournaments;
     private final ApplicationEventPublisher publisher;
     private final GameProperties properties;
     private final ArenaService arena;
@@ -55,13 +59,20 @@ class MatchSettlementService {
         if (!"RUNNING".equals(match.status())) {
             return;
         }
-        MatchRecord current = matches.findById(match.id()).orElse(null);
-        RoundRecord latest = matches.latestRound(match.id()).orElse(null);
+        MatchRecord current = Optional.ofNullable(matches.selectById(match.id()))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
+        RoundRecord latest = Optional.ofNullable(matches.selectLatestRound(match.id()))
+                .map(MatchConverters::toRecord)
+                .orElse(null);
         if (current == null || latest == null || !latest.id().equals(round.id())
                 || !"RUNNING".equals(latest.status())) {
             return;
         }
-        TournamentRecord tournament = tournaments.findById(current.tournamentId()).orElse(null);
+        TournamentRecord tournament = Optional.ofNullable(
+                        tournaments.selectActiveById(current.tournamentId()))
+                .map(TournamentConverters::toRecord)
+                .orElse(null);
         boolean blind = tournament != null && GameIds.BLIND_XIANGQI.equals(tournament.gameId());
         // 赛事只认输赢：小局和棋时按种子顺位判高顺位获胜，避免无胜者的比赛阻塞赛程。
         String resolvedWinner = gameWinner;
@@ -110,10 +121,11 @@ class MatchSettlementService {
                 finalWinner = current.player1UserId();
             }
             if (matches.finishIfRunning(
-                    current.id(), finalWinner, player1Score, player2Score, now) == 0) {
+                    current.id(), finalWinner, player1Score, player2Score,
+                    SqlTime.toDateTime(now)) == 0) {
                 return;
             }
-            matches.finishRoundIfRunning(latest.id(), resolvedWinner, now);
+            matches.finishRoundIfRunning(latest.id(), resolvedWinner, SqlTime.toDateTime(now));
             closeRoundResources(latest.id());
             state.clearReady(current.id());
             state.clearMatchDisconnects(current.id());
@@ -132,7 +144,8 @@ class MatchSettlementService {
         long restSeconds = ArenaGames.isArena(latest.gameId())
                 ? arena.restSeconds() : properties.restSeconds();
         long restUntil = now + restSeconds * 1000L;
-        if (matches.restAfterGame(latest.id(), resolvedWinner, restUntil, now) == 0) {
+        if (matches.restAfterGame(latest.id(), resolvedWinner,
+                SqlTime.toDateTime(restUntil), SqlTime.toDateTime(now)) == 0) {
             return;
         }
         closeRoundResources(latest.id());
@@ -154,10 +167,14 @@ class MatchSettlementService {
 
     /** 和棋或平局时按种子顺位判定，种子数字越小顺位越高。 */
     private String higherSeedWinner(MatchRecord match) {
-        int firstSeed = tournaments.findPlayer(match.tournamentId(), match.player1UserId())
+        int firstSeed = Optional.ofNullable(
+                        tournaments.selectPlayer(match.tournamentId(), match.player1UserId()))
+                .map(TournamentConverters::toRecord)
                 .map(TournamentPlayerRecord::seed)
                 .orElse(Integer.MAX_VALUE);
-        int secondSeed = tournaments.findPlayer(match.tournamentId(), match.player2UserId())
+        int secondSeed = Optional.ofNullable(
+                        tournaments.selectPlayer(match.tournamentId(), match.player2UserId()))
+                .map(TournamentConverters::toRecord)
                 .map(TournamentPlayerRecord::seed)
                 .orElse(Integer.MAX_VALUE);
         return secondSeed < firstSeed ? match.player2UserId() : match.player1UserId();

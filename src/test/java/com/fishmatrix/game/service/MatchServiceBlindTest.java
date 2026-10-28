@@ -5,11 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -18,6 +15,16 @@ import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.BlindPieceConverters;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.MoveConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.entity.GameBlindPieceEntity;
+import com.fishmatrix.game.entity.GameMoveEntity;
+import com.fishmatrix.game.entity.GameRoundEntity;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.BlindColor;
 import com.fishmatrix.game.model.BlindPieceType;
 import com.fishmatrix.game.model.BlindPieceView;
@@ -26,16 +33,15 @@ import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchFinishedEvent;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.MatchView;
+import com.fishmatrix.game.model.MoveView;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.service.BlindXiangqiEngine.Piece;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -43,18 +49,18 @@ import org.springframework.context.ApplicationEventPublisher;
 
 class MatchServiceBlindTest {
 
-    private MatchRepository matches;
-    private TournamentRepository tournaments;
-    private BlindXiangqiRepository blindPieces;
+    private MatchMapper matches;
+    private TournamentMapper tournaments;
+    private GameBlindPieceMapper blindPieces;
     private GameSessionRegistry registry;
     private ApplicationEventPublisher publisher;
     private MatchService service;
 
     @BeforeEach
     void setUp() {
-        matches = mock(MatchRepository.class);
-        tournaments = mock(TournamentRepository.class);
-        blindPieces = mock(BlindXiangqiRepository.class);
+        matches = mock(MatchMapper.class);
+        tournaments = mock(TournamentMapper.class);
+        blindPieces = mock(GameBlindPieceMapper.class);
         registry = mock(GameSessionRegistry.class);
         publisher = mock(ApplicationEventPublisher.class);
 
@@ -71,24 +77,26 @@ class MatchServiceBlindTest {
                 "u1", "甲", 2, 10_000L, 1, 1, null, null,
                 null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE", null);
 
-        when(matches.findById("m1")).thenReturn(Optional.of(match));
-        when(matches.latestRound("m1")).thenReturn(Optional.of(round));
-        when(matches.listMoves("r1")).thenReturn(List.of());
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament));
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, false),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.SOLDIER, 4, 4, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
-                new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false)));
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(match));
+        when(matches.selectLatestRound("m1")).thenReturn(MatchConverters.toEntity(round));
+        when(matches.selectMoves("r1")).thenReturn(List.of());
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, false),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.SOLDIER, 4, 4, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
+                        new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false))));
         when(matches.updateTurnAndCount(
-                anyString(), anyInt(), anyInt(), anyString(), anyLong())).thenReturn(1);
+                anyString(), anyInt(), anyInt(), anyString(), any())).thenReturn(1);
         when(blindPieces.reveal(anyString(), anyString())).thenReturn(1);
         when(blindPieces.move(anyString(), anyString(), anyInt(), anyInt())).thenReturn(1);
         when(blindPieces.capture(anyString(), anyString())).thenReturn(1);
         when(matches.finishIfRunning(
-                anyString(), anyString(), anyInt(), anyInt(), anyLong())).thenReturn(1);
+                anyString(), anyString(), anyInt(), anyInt(), any())).thenReturn(1);
         when(matches.restAfterGame(
-                anyString(), nullable(String.class), anyLong(), anyLong())).thenReturn(1);
+                anyString(), any(), any(), any())).thenReturn(1);
 
         service = new MatchService(
                 matches, tournaments, blindPieces, registry,
@@ -102,13 +110,23 @@ class MatchServiceBlindTest {
         service.revealPiece(identity("u1"), "m1", 0, 9);
 
         verify(blindPieces).reveal("r1", "p1");
-        verify(matches).updateTurnAndCount(eq("r1"), eq(0), eq(1), eq("u2"), anyLong());
-        verify(matches).insertMove(
-                eq("r1"), eq(1), eq("u1"), eq(0), eq(9), eq("REVEAL"),
-                isNull(), isNull(), eq("CHARIOT"), eq("RED"),
-                isNull(), isNull(), anyLong());
+        verify(matches).updateTurnAndCount(eq("r1"), eq(0), eq(1), eq("u2"), any());
+        GameMoveEntity stored = storedMove();
+        assertThat(stored.getRoundId()).isEqualTo("r1");
+        MoveView move = MoveConverters.toView(stored);
+        assertThat(move.moveNo()).isEqualTo(1);
+        assertThat(move.userId()).isEqualTo("u1");
+        assertThat(move.x()).isZero();
+        assertThat(move.y()).isEqualTo(9);
+        assertThat(move.action()).isEqualTo("REVEAL");
+        assertThat(move.fromX()).isNull();
+        assertThat(move.fromY()).isNull();
+        assertThat(move.pieceType()).isEqualTo("CHARIOT");
+        assertThat(move.pieceColor()).isEqualTo("RED");
+        assertThat(move.capturedPieceType()).isNull();
+        assertThat(move.capturedPieceColor()).isNull();
         verify(matches, never()).finishIfRunning(
-                anyString(), anyString(), anyInt(), anyInt(), anyLong());
+                anyString(), anyString(), anyInt(), anyInt(), any());
 
         Map<String, Object> action = frame("blind_action");
         assertThat(action)
@@ -122,20 +140,29 @@ class MatchServiceBlindTest {
 
     @Test
     void movePieceMovesRevealedOwnPiece() {
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.SOLDIER, 4, 4, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
-                new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.SOLDIER, 4, 4, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
+                        new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false))));
 
         service.movePiece(identity("u1"), "m1", 0, 9, 0, 8);
 
         verify(blindPieces).move("r1", "p1", 0, 8);
         verify(blindPieces, never()).capture(anyString(), anyString());
-        verify(matches).insertMove(
-                eq("r1"), eq(1), eq("u1"), eq(0), eq(8), eq("MOVE"),
-                eq(0), eq(9), eq("CHARIOT"), eq("RED"),
-                isNull(), isNull(), anyLong());
+        MoveView move = MoveConverters.toView(storedMove());
+        assertThat(move.moveNo()).isEqualTo(1);
+        assertThat(move.userId()).isEqualTo("u1");
+        assertThat(move.x()).isZero();
+        assertThat(move.y()).isEqualTo(8);
+        assertThat(move.action()).isEqualTo("MOVE");
+        assertThat(move.fromX()).isZero();
+        assertThat(move.fromY()).isEqualTo(9);
+        assertThat(move.pieceType()).isEqualTo("CHARIOT");
+        assertThat(move.pieceColor()).isEqualTo("RED");
+        assertThat(move.capturedPieceType()).isNull();
+        assertThat(move.capturedPieceColor()).isNull();
 
         Map<String, Object> action = frame("blind_action");
         assertThat(action)
@@ -149,21 +176,28 @@ class MatchServiceBlindTest {
 
     @Test
     void blindCaptureAcceptsOwnFaceDownPiece() {
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
-                new Piece("p2", BlindColor.RED, BlindPieceType.SOLDIER, 0, 5, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
-                new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
+                        new Piece("p2", BlindColor.RED, BlindPieceType.SOLDIER, 0, 5, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false),
+                        new Piece("p4", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 0, false))));
 
         service.movePiece(identity("u1"), "m1", 0, 9, 0, 5);
 
         verify(blindPieces).capture("r1", "p2");
-        verify(matches).insertMove(
-                eq("r1"), eq(1), eq("u1"), eq(0), eq(5), eq("MOVE"),
-                eq(0), eq(9), eq("CHARIOT"), eq("RED"),
-                eq("SOLDIER"), eq("RED"), anyLong());
+        MoveView move = MoveConverters.toView(storedMove());
+        assertThat(move.x()).isZero();
+        assertThat(move.y()).isEqualTo(5);
+        assertThat(move.action()).isEqualTo("MOVE");
+        assertThat(move.fromX()).isZero();
+        assertThat(move.fromY()).isEqualTo(9);
+        assertThat(move.pieceType()).isEqualTo("CHARIOT");
+        assertThat(move.pieceColor()).isEqualTo("RED");
+        assertThat(move.capturedPieceType()).isEqualTo("SOLDIER");
+        assertThat(move.capturedPieceColor()).isEqualTo("RED");
         verify(matches, never()).finishIfRunning(
-                anyString(), anyString(), anyInt(), anyInt(), anyLong());
+                anyString(), anyString(), anyInt(), anyInt(), any());
 
         Map<String, Object> action = frame("blind_action");
         assertThat(action)
@@ -174,15 +208,16 @@ class MatchServiceBlindTest {
 
     @Test
     void blindCaptureOfEnemyGeneralEndsMatch() {
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false))));
 
         service.movePiece(identity("u1"), "m1", 0, 9, 0, 5);
 
         verify(blindPieces).capture("r1", "p2");
-        verify(matches).finishIfRunning(eq("m1"), eq("u1"), eq(1), eq(0), anyLong());
+        verify(matches).finishIfRunning(eq("m1"), eq("u1"), eq(1), eq(0), any());
         verify(publisher).publishEvent(any(MatchFinishedEvent.class));
         assertThat(frame("blind_action")).containsEntry("result", "WIN");
         Map<String, Object> result = frame("match_result");
@@ -195,19 +230,20 @@ class MatchServiceBlindTest {
 
     @Test
     void facingGeneralsFallsBackToHigherSeedAndRestsForNextGame() {
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.GENERAL, 4, 8, true),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 1, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.GENERAL, 4, 8, true),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 1, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true))));
 
         service.revealPiece(identity("u1"), "m1", 4, 1);
 
         verify(blindPieces).reveal("r1", "p2");
         // 赛事只认输赢：和棋按种子顺位判胜，默认 1 号位 u1 晋级本局。
-        verify(matches).restAfterGame(eq("r1"), eq("u1"), anyLong(), anyLong());
+        verify(matches).restAfterGame(eq("r1"), eq("u1"), any(), any());
         verify(matches).updateScore("m1", 1, 0);
         verify(matches, never()).finishIfRunning(
-                anyString(), anyString(), anyInt(), anyInt(), anyLong());
+                anyString(), anyString(), anyInt(), anyInt(), any());
         verify(publisher, never()).publishEvent(any(MatchFinishedEvent.class));
 
         assertThat(frame("blind_action")).containsEntry("result", "DRAW");
@@ -219,21 +255,23 @@ class MatchServiceBlindTest {
 
     @Test
     void blindBo3FirstWinRestsInsteadOfEndingMatch() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
-                "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO3", "TBD", "RUNNING",
-                "u1", "甲", 2, 10_000L, 1, 3, null, null,
-                null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE", null)));
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
-                new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false)));
+        when(tournaments.selectActiveById("t1")).thenReturn(TournamentConverters.toEntity(
+                new TournamentRecord(
+                        "t1", "盲棋", "blind-xiangqi", "TOURNAMENT", "BO3", "TBD", "RUNNING",
+                        "u1", "甲", 2, 10_000L, 1, 3, null, null,
+                        null, null, 1_000L, 2_000L, null, "STANDARD_SHUFFLE", null)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, true),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 0, 5, false),
+                        new Piece("p3", BlindColor.RED, BlindPieceType.GENERAL, 4, 9, false))));
 
         service.movePiece(identity("u1"), "m1", 0, 9, 0, 5);
 
-        verify(matches).restAfterGame(eq("r1"), eq("u1"), anyLong(), anyLong());
+        verify(matches).restAfterGame(eq("r1"), eq("u1"), any(), any());
         verify(matches).updateScore("m1", 1, 0);
         verify(matches, never()).finishIfRunning(
-                anyString(), anyString(), anyInt(), anyInt(), anyLong());
+                anyString(), anyString(), anyInt(), anyInt(), any());
         Map<String, Object> rest = frame("match_rest");
         assertThat(rest)
                 .containsEntry("player1Score", 1)
@@ -241,40 +279,42 @@ class MatchServiceBlindTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void startNextGameCreatesFreshBlindRoundAndAlternatesFirstPlayer() {
         RoundRecord rest = new RoundRecord(
                 "r1", "m1", "blind-xiangqi", 1, "REST",
                 "u1", "u2", null, "u2", null,
                 5, 1_000L, 2_000L, "", null, 0, 1_000L, null, null);
-        when(matches.latestRound("m1")).thenReturn(Optional.of(rest));
-        when(matches.finishRestRound(eq("r1"), anyLong())).thenReturn(1);
+        when(matches.selectLatestRound("m1")).thenReturn(MatchConverters.toEntity(rest));
+        when(matches.finishRestRound(eq("r1"), any())).thenReturn(1);
         when(registry.byUser(anyString())).thenReturn(List.of());
 
         service.startNextGame("m1");
 
-        ArgumentCaptor<RoundRecord> roundCaptor = ArgumentCaptor.forClass(RoundRecord.class);
+        ArgumentCaptor<GameRoundEntity> roundCaptor =
+                ArgumentCaptor.forClass(GameRoundEntity.class);
         verify(matches).insertRound(roundCaptor.capture());
-        RoundRecord next = roundCaptor.getValue();
+        RoundRecord next = MatchConverters.toRecord(roundCaptor.getValue());
         assertThat(next.gameNo()).isEqualTo(2);
         assertThat(next.status()).isEqualTo("RUNNING");
         assertThat(next.blackUserId()).isEqualTo("u2");
         assertThat(next.whiteUserId()).isEqualTo("u1");
         assertThat(next.turnUserId()).isEqualTo("u2");
 
-        ArgumentCaptor<List<Piece>> piecesCaptor =
-                ArgumentCaptor.forClass((Class) List.class);
-        verify(blindPieces).insertPieces(eq(next.id()), piecesCaptor.capture());
-        assertThat(piecesCaptor.getValue())
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<GameBlindPieceEntity>> piecesCaptor =
+                ArgumentCaptor.forClass((Class) Collection.class);
+        verify(blindPieces).insert(piecesCaptor.capture());
+        assertThat(BlindPieceConverters.toPieces(new ArrayList<>(piecesCaptor.getValue())))
                 .hasSize(32)
                 .allSatisfy(piece -> assertThat(piece.revealed()).isFalse());
     }
 
     @Test
     void blindBoardHidesFaceDownIdentity() {
-        when(blindPieces.listAlivePieces("r1")).thenReturn(List.of(
-                new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, false),
-                new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 1, true)));
+        when(blindPieces.selectAlivePieces("r1")).thenReturn(
+                BlindPieceConverters.toEntities("r1", List.of(
+                        new Piece("p1", BlindColor.RED, BlindPieceType.CHARIOT, 0, 9, false),
+                        new Piece("p2", BlindColor.BLACK, BlindPieceType.GENERAL, 4, 1, true))));
 
         MatchView view = service.detail("m1");
 
@@ -304,10 +344,11 @@ class MatchServiceBlindTest {
 
     @Test
     void blindActionRejectedForGomokuMatch() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(new TournamentRecord(
-                "t1", "热力五子棋", "heatmap-gomoku", "TOURNAMENT", "BO1", "TBD", "RUNNING",
-                "u1", "甲", 2, 10_000L, 1, 1, null, null,
-                null, null, 1_000L, 2_000L, null, null, null)));
+        when(tournaments.selectActiveById("t1")).thenReturn(TournamentConverters.toEntity(
+                new TournamentRecord(
+                        "t1", "热力五子棋", "heatmap-gomoku", "TOURNAMENT", "BO1", "TBD", "RUNNING",
+                        "u1", "甲", 2, 10_000L, 1, 1, null, null,
+                        null, null, 1_000L, 2_000L, null, null, null)));
 
         assertThatThrownBy(() -> service.revealPiece(identity("u1"), "m1", 4, 4))
                 .isInstanceOf(GameException.class)
@@ -326,6 +367,12 @@ class MatchServiceBlindTest {
         assertThatThrownBy(() -> service.revealPiece(identity("u2"), "m1", 0, 9))
                 .isInstanceOf(GameException.class)
                 .hasMessage("还没轮到你操作");
+    }
+
+    private GameMoveEntity storedMove() {
+        ArgumentCaptor<GameMoveEntity> captor = ArgumentCaptor.forClass(GameMoveEntity.class);
+        verify(matches).insertMove(captor.capture());
+        return captor.getValue();
     }
 
     @SuppressWarnings("unchecked")

@@ -1,0 +1,38 @@
+package com.fishmatrix.game.entity;
+
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import java.time.LocalDateTime;
+import lombok.Data;
+
+/** 综合大榜：一名选手一行，points 与 championships 由赛事结算写入。 */
+@Data
+@TableName("game_player_stat")
+public class GamePlayerStatEntity {
+
+    @TableId(value = "user_id", type = IdType.INPUT)
+    private String userId;
+
+    private String nickname;
+
+    private Integer matches;
+
+    private Integer wins;
+
+    private Integer losses;
+
+    private Integer points;
+
+    private Integer championships;
+
+    private Integer runnerUps;
+
+    private Long bestScore;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+}
+

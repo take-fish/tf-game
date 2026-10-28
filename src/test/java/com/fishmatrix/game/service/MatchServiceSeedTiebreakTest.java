@@ -3,7 +3,6 @@ package com.fishmatrix.game.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -13,17 +12,18 @@ import static org.mockito.Mockito.when;
 import com.fishmatrix.game.arena.ArenaRoundFinishedEvent;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,19 +32,19 @@ import org.springframework.context.ApplicationEventPublisher;
 class MatchServiceSeedTiebreakTest {
 
     private MatchService service;
-    private MatchRepository matches;
-    private TournamentRepository tournaments;
+    private MatchMapper matches;
+    private TournamentMapper tournaments;
     private GameSessionRegistry registry;
 
     @BeforeEach
     void setUp() {
-        matches = mock(MatchRepository.class);
-        tournaments = mock(TournamentRepository.class);
+        matches = mock(MatchMapper.class);
+        tournaments = mock(TournamentMapper.class);
         registry = mock(GameSessionRegistry.class);
         service = new MatchService(
                 matches,
                 tournaments,
-                mock(BlindXiangqiRepository.class),
+                mock(GameBlindPieceMapper.class),
                 registry,
                 mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),
@@ -57,20 +57,23 @@ class MatchServiceSeedTiebreakTest {
     void drawInTournamentAwardsHigherSeed() {
         MatchRecord match = runningMatch();
         RoundRecord round = round();
-        when(matches.findById("m1")).thenReturn(Optional.of(match));
-        when(matches.findRound("r1")).thenReturn(Optional.of(round));
-        when(matches.latestRound("m1")).thenReturn(Optional.of(round));
-        when(matches.listMoves("r1")).thenReturn(List.of());
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament()));
-        when(tournaments.findPlayer("t1", "u3")).thenReturn(Optional.of(player("u3", 3)));
-        when(tournaments.findPlayer("t1", "u4")).thenReturn(Optional.of(player("u4", 4)));
-        when(matches.finishIfRunning(eq("m1"), eq("u3"), anyInt(), anyInt(), anyLong()))
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(match));
+        when(matches.selectRound("r1")).thenReturn(MatchConverters.toEntity(round));
+        when(matches.selectLatestRound("m1")).thenReturn(MatchConverters.toEntity(round));
+        when(matches.selectMoves("r1")).thenReturn(List.of());
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament()));
+        when(tournaments.selectPlayer("t1", "u3"))
+                .thenReturn(TournamentConverters.toEntity(player("u3", 3)));
+        when(tournaments.selectPlayer("t1", "u4"))
+                .thenReturn(TournamentConverters.toEntity(player("u4", 4)));
+        when(matches.finishIfRunning(eq("m1"), eq("u3"), anyInt(), anyInt(), any()))
                 .thenReturn(1);
 
         service.onArenaRoundFinished(new ArenaRoundFinishedEvent("m1", "r1", null, "和棋"));
 
-        verify(matches).finishIfRunning(eq("m1"), eq("u3"), eq(1), eq(0), anyLong());
-        verify(matches).finishRoundIfRunning(eq("r1"), eq("u3"), anyLong());
+        verify(matches).finishIfRunning(eq("m1"), eq("u3"), eq(1), eq(0), any());
+        verify(matches).finishRoundIfRunning(eq("r1"), eq("u3"), any());
         // 一帧 match_update 刷新视图，一帧 match_result 通知结算。
         verify(registry, times(2)).broadcastMatch(eq("m1"), any(), any());
     }
@@ -82,18 +85,22 @@ class MatchServiceSeedTiebreakTest {
                 "u4", "丁", "u3", "丙", 0, 0, null, null,
                 1_000L, 2_000L, null, "heatmap-gomoku", "u3");
         RoundRecord round = round();
-        when(matches.findById("m1")).thenReturn(Optional.of(match));
-        when(matches.findRound("r1")).thenReturn(Optional.of(round));
-        when(matches.latestRound("m1")).thenReturn(Optional.of(round));
-        when(matches.listMoves("r1")).thenReturn(List.of());
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament()));
-        when(tournaments.findPlayer("t1", "u4")).thenReturn(Optional.of(player("u4", 4)));
-        when(tournaments.findPlayer("t1", "u3")).thenReturn(Optional.of(player("u3", 3)));
-        when(matches.finishIfRunning(eq("m1"), eq("u3"), anyInt(), anyInt(), anyLong()))
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(match));
+        when(matches.selectRound("r1")).thenReturn(MatchConverters.toEntity(round));
+        when(matches.selectLatestRound("m1")).thenReturn(MatchConverters.toEntity(round));
+        when(matches.selectMoves("r1")).thenReturn(List.of());
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament()));
+        when(tournaments.selectPlayer("t1", "u4"))
+                .thenReturn(TournamentConverters.toEntity(player("u4", 4)));
+        when(tournaments.selectPlayer("t1", "u3"))
+                .thenReturn(TournamentConverters.toEntity(player("u3", 3)));
+        when(matches.finishIfRunning(eq("m1"), eq("u3"), anyInt(), anyInt(), any()))
                 .thenReturn(1);
 
         service.onArenaRoundFinished(new ArenaRoundFinishedEvent("m1", "r1", null, "和棋"));
 
+        @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> frame = ArgumentCaptor.forClass(Map.class);
         // 第二次广播是 match_result，最后一个捕获值即结算帧。
         verify(registry, times(2)).broadcastMatch(eq("m1"), any(), frame.capture());

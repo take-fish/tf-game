@@ -1,12 +1,14 @@
 package com.fishmatrix.game.service;
 
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.PlayerView;
 import com.fishmatrix.game.model.TournamentRecord;
 import com.fishmatrix.game.model.TournamentView;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -18,15 +20,17 @@ import org.springframework.stereotype.Component;
 @Component
 class TournamentViewAssembler {
 
-    private final TournamentRepository tournaments;
-    private final MatchRepository matches;
+    private final TournamentMapper tournaments;
+    private final MatchMapper matches;
 
     TournamentView view(TournamentRecord tournament) {
-        List<PlayerView> players = tournaments.listPlayers(tournament.id()).stream()
+        List<PlayerView> players = TournamentConverters.playerRecords(
+                        tournaments.selectPlayers(tournament.id())).stream()
                 .map(player -> new PlayerView(
                         player.userId(), player.nickname(), player.seed(), player.status()))
                 .toList();
-        List<MatchView> views = matches.listByTournament(tournament.id()).stream()
+        List<MatchView> views = MatchConverters.records(
+                        matches.selectByTournament(tournament.id())).stream()
                 .map(match -> matchView(match, tournament))
                 .toList();
         return new TournamentView(

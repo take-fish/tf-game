@@ -1,7 +1,8 @@
-package com.fishmatrix.game.store;
+package com.fishmatrix.game.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fishmatrix.game.converter.BlindPieceConverters;
 import com.fishmatrix.game.model.BlindLayout;
 import com.fishmatrix.game.service.BlindXiangqiEngine;
 import com.fishmatrix.game.service.BlindXiangqiEngine.Piece;
@@ -20,10 +21,10 @@ import org.springframework.boot.test.context.SpringBootTest;
             "spring.cloud.nacos.config.enabled=false",
             "app.game.scheduling-enabled=false"
         })
-class BlindXiangqiRepositoryTest {
+class GameBlindPieceMapperTest {
 
     @Autowired
-    private BlindXiangqiRepository pieces;
+    private GameBlindPieceMapper pieces;
 
     @Test
     void persistsAndMutatesServerSidePieces() {
@@ -34,9 +35,9 @@ class BlindXiangqiRepositoryTest {
                         placement.x(), placement.y(), false))
                 .toList();
 
-        pieces.insertPieces(roundId, initial);
+        pieces.insert(BlindPieceConverters.toEntities(roundId, initial));
 
-        List<Piece> loaded = pieces.listAlivePieces(roundId);
+        List<Piece> loaded = alive(roundId);
         assertThat(loaded).hasSize(32);
         assertThat(loaded).allSatisfy(piece -> assertThat(piece.revealed()).isFalse());
 
@@ -53,12 +54,16 @@ class BlindXiangqiRepositoryTest {
         assertThat(moved.y()).isEqualTo(free[1]);
 
         assertThat(pieces.capture(roundId, first.id())).isEqualTo(1);
-        assertThat(pieces.listAlivePieces(roundId)).hasSize(31);
+        assertThat(alive(roundId)).hasSize(31);
         assertThat(pieces.capture(roundId, first.id())).isZero();
     }
 
+    private List<Piece> alive(String roundId) {
+        return BlindPieceConverters.toPieces(pieces.selectAlivePieces(roundId));
+    }
+
     private Piece find(String roundId, String pieceId) {
-        return pieces.listAlivePieces(roundId).stream()
+        return alive(roundId).stream()
                 .filter(piece -> piece.id().equals(pieceId))
                 .findFirst()
                 .orElseThrow();

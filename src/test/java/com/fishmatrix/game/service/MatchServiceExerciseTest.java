@@ -11,16 +11,18 @@ import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.entity.GameRoundEntity;
+import com.fishmatrix.game.mapper.GameBlindPieceMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.BlindXiangqiRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -29,27 +31,28 @@ import org.springframework.context.ApplicationEventPublisher;
 class MatchServiceExerciseTest {
 
     private MatchService service;
-    private MatchRepository matches;
+    private MatchMapper matches;
     private ExerciseService exercise;
     private GameSessionRegistry registry;
 
     @BeforeEach
     void setUp() {
-        matches = mock(MatchRepository.class);
-        TournamentRepository tournaments = mock(TournamentRepository.class);
+        matches = mock(MatchMapper.class);
+        TournamentMapper tournaments = mock(TournamentMapper.class);
         registry = mock(GameSessionRegistry.class);
         exercise = mock(ExerciseService.class);
         when(exercise.supports("cluster-patrol-arena")).thenReturn(true);
         when(exercise.startTournament(anyString(), anyString(), any(), anyLong()))
                 .thenReturn(new ExerciseService.StartState(
                         "{\"gameId\":\"cluster-patrol-arena\",\"seq\":0}", 5_000L));
-        when(matches.start(eq("m1"), anyLong())).thenReturn(1);
-        when(matches.findById("m1")).thenReturn(Optional.of(match()));
-        when(matches.latestRound("m1")).thenReturn(Optional.empty());
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament()));
+        when(matches.start(eq("m1"), any())).thenReturn(1);
+        when(matches.selectById("m1")).thenReturn(MatchConverters.toEntity(match()));
+        when(matches.selectLatestRound("m1")).thenReturn(null);
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament()));
         when(registry.byUser(anyString())).thenReturn(List.of());
         service = new MatchService(
-                matches, tournaments, mock(BlindXiangqiRepository.class),
+                matches, tournaments, mock(GameBlindPieceMapper.class),
                 registry, mock(GameNotificationService.class),
                 mock(ApplicationEventPublisher.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"),
@@ -61,9 +64,9 @@ class MatchServiceExerciseTest {
         service.ready(identity("u1"), "m1");
         service.ready(identity("u2"), "m1");
 
-        ArgumentCaptor<RoundRecord> captor = ArgumentCaptor.forClass(RoundRecord.class);
+        ArgumentCaptor<GameRoundEntity> captor = ArgumentCaptor.forClass(GameRoundEntity.class);
         verify(matches).insertRound(captor.capture());
-        RoundRecord round = captor.getValue();
+        RoundRecord round = MatchConverters.toRecord(captor.getValue());
 
         assertThat(round.gameId()).isEqualTo("cluster-patrol-arena");
         assertThat(round.turnUserId()).isNull();

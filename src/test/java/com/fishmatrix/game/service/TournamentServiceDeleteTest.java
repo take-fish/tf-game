@@ -1,7 +1,7 @@
 package com.fishmatrix.game.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -10,32 +10,32 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.PlayerStatRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class TournamentServiceDeleteTest {
 
-    private TournamentRepository tournaments;
+    private TournamentMapper tournaments;
     private GameSessionRegistry registry;
     private TournamentService service;
 
     @BeforeEach
     void setUp() {
-        tournaments = mock(TournamentRepository.class);
+        tournaments = mock(TournamentMapper.class);
         registry = mock(GameSessionRegistry.class);
         service = new TournamentService(
                 tournaments,
-                mock(MatchRepository.class),
-                mock(PlayerStatRepository.class),
+                mock(MatchMapper.class),
+                mock(PlayerStatMapper.class),
                 registry,
                 mock(GameNotificationService.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"));
@@ -43,51 +43,55 @@ class TournamentServiceDeleteTest {
 
     @Test
     void creatorDeletesFinishedTournament() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("FINISHED", "u1")));
-        when(tournaments.softDelete(eq("t1"), anyLong())).thenReturn(1);
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("FINISHED", "u1")));
+        when(tournaments.softDelete(eq("t1"), any())).thenReturn(1);
 
         service.delete(identity("u1", "USER"), "t1");
 
-        verify(tournaments).softDelete(eq("t1"), anyLong());
+        verify(tournaments).softDelete(eq("t1"), any());
         verify(registry).broadcastAll(Map.of("type", "tournament_deleted", "tournamentId", "t1"));
     }
 
     @Test
     void runningTournamentCannotBeDeleted() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("RUNNING", "u1")));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("RUNNING", "u1")));
 
         assertThatThrownBy(() -> service.delete(identity("u1", "USER"), "t1"))
                 .isInstanceOf(GameException.class)
                 .hasMessage("赛事进行中，不能删除");
 
-        verify(tournaments, never()).softDelete(eq("t1"), anyLong());
+        verify(tournaments, never()).softDelete(eq("t1"), any());
         verifyNoInteractions(registry);
     }
 
     @Test
     void nonCreatorCannotDelete() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("FINISHED", "u1")));
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("FINISHED", "u1")));
 
         assertThatThrownBy(() -> service.delete(identity("u2", "USER"), "t1"))
                 .isInstanceOf(GameException.class)
                 .hasMessage("只有创建者可以删除赛事");
 
-        verify(tournaments, never()).softDelete(eq("t1"), anyLong());
+        verify(tournaments, never()).softDelete(eq("t1"), any());
     }
 
     @Test
     void adminCanDeleteAnyTournament() {
-        when(tournaments.findById("t1")).thenReturn(Optional.of(tournament("CANCELLED", "u1")));
-        when(tournaments.softDelete(eq("t1"), anyLong())).thenReturn(1);
+        when(tournaments.selectActiveById("t1"))
+                .thenReturn(TournamentConverters.toEntity(tournament("CANCELLED", "u1")));
+        when(tournaments.softDelete(eq("t1"), any())).thenReturn(1);
 
         service.delete(identity("u9", "ADMIN"), "t1");
 
-        verify(tournaments).softDelete(eq("t1"), anyLong());
+        verify(tournaments).softDelete(eq("t1"), any());
     }
 
     @Test
     void alreadyDeletedTournamentIsNotFound() {
-        when(tournaments.findById("t1")).thenReturn(Optional.empty());
+        when(tournaments.selectActiveById("t1")).thenReturn(null);
 
         assertThatThrownBy(() -> service.delete(identity("u1", "USER"), "t1"))
                 .isInstanceOf(GameException.class)

@@ -1,10 +1,13 @@
-package com.fishmatrix.game.store;
+package com.fishmatrix.game.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,44 +20,44 @@ import org.springframework.boot.test.context.SpringBootTest;
             "spring.cloud.nacos.config.enabled=false",
             "app.game.scheduling-enabled=false"
         })
-class TournamentRepositoryTest {
+class TournamentMapperTest {
 
     @Autowired
-    private TournamentRepository tournaments;
+    private TournamentMapper tournaments;
 
     @Test
     void softDeleteHidesTournamentFromDetailAndList() {
         String id = UUID.randomUUID().toString();
-        tournaments.insert(tournament(id, "FINISHED", "u1"));
-        assertThat(tournaments.findById(id)).isPresent();
-        assertThat(tournaments.listRecent(50))
+        tournaments.insert(TournamentConverters.toEntity(tournament(id, "FINISHED", "u1")));
+        assertThat(find(id)).isPresent();
+        assertThat(recent(50))
                 .extracting(TournamentRecord::id)
                 .contains(id);
 
         long now = System.currentTimeMillis();
-        assertThat(tournaments.softDelete(id, now)).isEqualTo(1);
+        assertThat(tournaments.softDelete(id, SqlTime.toDateTime(now))).isEqualTo(1);
 
-        assertThat(tournaments.findById(id)).isEmpty();
-        assertThat(tournaments.listRecent(50))
+        assertThat(find(id)).isEmpty();
+        assertThat(recent(50))
                 .extracting(TournamentRecord::id)
                 .doesNotContain(id);
-        assertThat(tournaments.softDelete(id, now)).isZero();
+        assertThat(tournaments.softDelete(id, SqlTime.toDateTime(now))).isZero();
     }
 
     @Test
     void softDeleteHidesPendingInvitation() {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-        tournaments.insert(tournament(id, "INVITING", "u1"));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, "u2", "受邀者", 1, "INVITED", now, null));
-        assertThat(tournaments.pendingInvitations("u2", now))
+        tournaments.insert(TournamentConverters.toEntity(tournament(id, "INVITING", "u1")));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, "u2", "受邀者", 1, "INVITED", now, null)));
+        assertThat(pendingInvitations("u2", now))
                 .extracting(TournamentRecord::id)
                 .contains(id);
 
-        assertThat(tournaments.softDelete(id, now)).isEqualTo(1);
+        assertThat(tournaments.softDelete(id, SqlTime.toDateTime(now))).isEqualTo(1);
 
-        assertThat(tournaments.pendingInvitations("u2", now))
+        assertThat(pendingInvitations("u2", now))
                 .extracting(TournamentRecord::id)
                 .doesNotContain(id);
     }
@@ -62,33 +65,35 @@ class TournamentRepositoryTest {
     @Test
     void runningTournamentIsNotSoftDeleted() {
         String id = UUID.randomUUID().toString();
-        tournaments.insert(tournament(id, "RUNNING", "u1"));
+        tournaments.insert(TournamentConverters.toEntity(tournament(id, "RUNNING", "u1")));
 
-        assertThat(tournaments.softDelete(id, System.currentTimeMillis())).isZero();
-        assertThat(tournaments.findById(id)).isPresent();
+        assertThat(tournaments.softDelete(id,
+                SqlTime.toDateTime(System.currentTimeMillis()))).isZero();
+        assertThat(find(id)).isPresent();
     }
 
     @Test
     void duelsStayOutOfLobbyAndTournamentInvitations() {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-        tournaments.insert(record(id, "DUEL", "INVITING", "u1"));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, "u1", "发起者", 1, "ACCEPTED", now, now));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, "u2", "对手", 2, "INVITED", now, null));
+        tournaments.insert(TournamentConverters.toEntity(
+                record(id, "DUEL", "INVITING", "u1")));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, "u1", "发起者", 1, "ACCEPTED", now, now)));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, "u2", "对手", 2, "INVITED", now, null)));
 
-        assertThat(tournaments.listRecent(50))
+        assertThat(recent(50))
                 .extracting(TournamentRecord::id)
                 .doesNotContain(id);
-        assertThat(tournaments.pendingInvitations("u2", now)).isEmpty();
-        assertThat(tournaments.listDuelsForUser("u1", 20))
+        assertThat(pendingInvitations("u2", now)).isEmpty();
+        assertThat(duels("u1", 20))
                 .extracting(TournamentRecord::id)
                 .contains(id);
-        assertThat(tournaments.listDuelsForUser("u2", 20))
+        assertThat(duels("u2", 20))
                 .extracting(TournamentRecord::id)
                 .contains(id);
-        assertThat(tournaments.listDuelsForUser("u3", 20))
+        assertThat(duels("u3", 20))
                 .extracting(TournamentRecord::id)
                 .doesNotContain(id);
         assertThat(tournaments.existsActiveDuelBetween(
@@ -103,13 +108,14 @@ class TournamentRepositoryTest {
     void finishedDuelIsNoLongerActive() {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-        tournaments.insert(record(id, "DUEL", "FINISHED", "u4"));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                id, "u5", "对手", 2, "ACCEPTED", now, now));
+        tournaments.insert(TournamentConverters.toEntity(
+                record(id, "DUEL", "FINISHED", "u4")));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                id, "u5", "对手", 2, "ACCEPTED", now, now)));
 
         assertThat(tournaments.existsActiveDuelBetween(
                 "u4", "u5", "heatmap-gomoku")).isFalse();
-        assertThat(tournaments.listDuelsForUser("u5", 20))
+        assertThat(duels("u5", 20))
                 .extracting(TournamentRecord::id)
                 .contains(id);
     }
@@ -119,16 +125,18 @@ class TournamentRepositoryTest {
         long now = System.currentTimeMillis();
         String blindId = UUID.randomUUID().toString();
         String gomokuId = UUID.randomUUID().toString();
-        tournaments.insert(record(blindId, "DUEL", "INVITING", "u6", "blind-xiangqi"));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                blindId, "u6", "发起者", 1, "ACCEPTED", now, now));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                blindId, "u7", "对手", 2, "INVITED", now, null));
-        tournaments.insert(record(gomokuId, "DUEL", "INVITING", "u6", "heatmap-gomoku"));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                gomokuId, "u6", "发起者", 1, "ACCEPTED", now, now));
-        tournaments.insertPlayer(new TournamentPlayerRecord(
-                gomokuId, "u7", "对手", 2, "INVITED", now, null));
+        tournaments.insert(TournamentConverters.toEntity(
+                record(blindId, "DUEL", "INVITING", "u6", "blind-xiangqi")));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                blindId, "u6", "发起者", 1, "ACCEPTED", now, now)));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                blindId, "u7", "对手", 2, "INVITED", now, null)));
+        tournaments.insert(TournamentConverters.toEntity(
+                record(gomokuId, "DUEL", "INVITING", "u6", "heatmap-gomoku")));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                gomokuId, "u6", "发起者", 1, "ACCEPTED", now, now)));
+        tournaments.insertPlayer(TournamentConverters.toEntity(new TournamentPlayerRecord(
+                gomokuId, "u7", "对手", 2, "INVITED", now, null)));
 
         assertThat(tournaments.existsActiveDuelBetween(
                 "u6", "u7", "blind-xiangqi")).isTrue();
@@ -139,19 +147,37 @@ class TournamentRepositoryTest {
     }
 
     @Test
-    void seriesGamePoolRoundTripsThroughRepository() {
+    void seriesGamePoolRoundTripsThroughMapper() {
         String id = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
-        tournaments.insert(new TournamentRecord(
+        tournaments.insert(TournamentConverters.toEntity(new TournamentRecord(
                 id, "S赛", "random", "TOURNAMENT", "BO1", "TBD", "INVITING",
                 "u8", "创建者", 2, now + 300_000L, 0, 0, null, null, null, null,
                 now, null, null, "STANDARD_SHUFFLE",
-                List.of("log-hotspot-arena", "blind-xiangqi")));
+                List.of("log-hotspot-arena", "blind-xiangqi"))));
 
-        TournamentRecord stored = tournaments.findById(id).orElseThrow();
+        TournamentRecord stored = find(id).orElseThrow();
         assertThat(stored.gamePool())
                 .containsExactly("log-hotspot-arena", "blind-xiangqi");
         assertThat(stored.blindLayout()).isEqualTo("STANDARD_SHUFFLE");
+    }
+
+    private Optional<TournamentRecord> find(String id) {
+        return Optional.ofNullable(tournaments.selectActiveById(id))
+                .map(TournamentConverters::toRecord);
+    }
+
+    private List<TournamentRecord> recent(int limit) {
+        return TournamentConverters.records(tournaments.selectRecent(limit));
+    }
+
+    private List<TournamentRecord> duels(String userId, int limit) {
+        return TournamentConverters.records(tournaments.selectDuelsForUser(userId, limit));
+    }
+
+    private List<TournamentRecord> pendingInvitations(String userId, long now) {
+        return TournamentConverters.records(
+                tournaments.selectPendingInvitations(userId, SqlTime.toDateTime(now)));
     }
 
     private TournamentRecord tournament(String id, String status, String creator) {

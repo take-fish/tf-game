@@ -1,19 +1,23 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.MatchFinishedEvent;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.TournamentPlayerRecord;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.PlayerStatRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -29,9 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class TournamentBracketService {
 
-    private final TournamentRepository tournaments;
-    private final MatchRepository matches;
-    private final PlayerStatRepository stats;
+    private final TournamentMapper tournaments;
+    private final MatchMapper matches;
+    private final PlayerStatMapper stats;
     private final GameNotificationService notifications;
     private final GameProperties properties;
     private final TournamentBroadcaster broadcaster;
@@ -42,14 +46,16 @@ class TournamentBracketService {
         if (!"INVITING".equals(tournament.status())) {
             return;
         }
-        List<TournamentPlayerRecord> waiting = tournaments.allAcceptedOrInvited(tournament.id());
+        List<TournamentPlayerRecord> waiting = TournamentConverters.playerRecords(
+                tournaments.selectAcceptedOrInvited(tournament.id()));
         if (waiting.stream().anyMatch(player -> "INVITED".equals(player.status()))) {
             return;
         }
-        List<TournamentPlayerRecord> accepted = tournaments.acceptedPlayers(tournament.id());
+        List<TournamentPlayerRecord> accepted = acceptedPlayers(tournament.id());
         if (accepted.size() < properties.minPlayers()) {
-            tournaments.cancel(tournament.id(), System.currentTimeMillis());
-            TournamentRecord cancelled = tournaments.findById(tournament.id()).orElse(tournament);
+            tournaments.cancel(tournament.id(),
+                    SqlTime.toDateTime(System.currentTimeMillis()));
+            TournamentRecord cancelled = findTournament(tournament.id()).orElse(tournament);
             broadcaster.announceCancelled(cancelled);
             return;
         }
@@ -59,7 +65,7 @@ class TournamentBracketService {
             tournaments.updateSeed(tournament.id(), player.userId(), seed);
             seed += 1;
         }
-        accepted = tournaments.acceptedPlayers(tournament.id());
+        accepted = acceptedPlayers(tournament.id());
         int count = accepted.size();
         long now = System.currentTimeMillis();
 
@@ -79,14 +85,15 @@ class TournamentBracketService {
                     : BracketPlanner.planSwissFirstRound(tournament.id(), accepted, now);
         }
 
-        if (tournaments.start(tournament.id(), bracketType, totalRounds, now) == 0) {
+        if (tournaments.start(tournament.id(), bracketType, totalRounds,
+                SqlTime.toDateTime(now)) == 0) {
             return;
         }
         for (MatchRecord match : planned) {
-            matches.insertMatch(match);
+            matches.insert(MatchConverters.toEntity(match));
             ensureFirstGame(tournament, match);
         }
-        TournamentRecord started = tournaments.findById(tournament.id()).orElse(tournament);
+        TournamentRecord started = findTournament(tournament.id()).orElse(tournament);
         if (TournamentService.KIND_DUEL.equals(started.kind())) {
             broadcaster.broadcastDuelStarted(started);
         } else {
@@ -99,11 +106,11 @@ class TournamentBracketService {
 
     @Transactional
     void onMatchFinished(MatchFinishedEvent event) {
-        MatchRecord match = matches.findById(event.matchId()).orElse(null);
+        MatchRecord match = findMatch(event.matchId()).orElse(null);
         if (match == null) {
             return;
         }
-        TournamentRecord tournament = tournaments.findById(match.tournamentId()).orElse(null);
+        TournamentRecord tournament = findTournament(match.tournamentId()).orElse(null);
         if (tournament == null || !"RUNNING".equals(tournament.status())) {
             return;
         }
@@ -123,12 +130,15 @@ class TournamentBracketService {
             String winnerNickname = match.winnerUserId().equals(match.player1UserId())
                     ? match.player1Nickname() : match.player2Nickname();
             matches.fillNextSlot(match.nextMatchId(), match.winnerUserId(), winnerNickname, slot1);
-            matches.findById(match.nextMatchId()).ifPresent(next -> {
-                if (BracketPlanner.STATUS_PENDING.equals(next.status())
-                        && next.player1UserId() != null && next.player2UserId() != null) {
-                    matches.updateStatus(next.id(), BracketPlanner.STATUS_READY);
-                }
-            });
+            Optional.ofNullable(matches.selectById(match.nextMatchId()))
+                    .map(MatchConverters::toRecord)
+                    .ifPresent(next -> {
+                        if (BracketPlanner.STATUS_PENDING.equals(next.status())
+                                && next.player1UserId() != null
+                                && next.player2UserId() != null) {
+                            matches.updateStatus(next.id(), BracketPlanner.STATUS_READY);
+                        }
+                    });
         }
 
         if (finalMatch) {
@@ -142,13 +152,14 @@ class TournamentBracketService {
             activatePendingMatches(tournament);
         }
         broadcaster.broadcastTournament(
-                tournaments.findById(tournament.id()).orElse(tournament));
+                findTournament(tournament.id()).orElse(tournament));
     }
 
     /** 编排补偿：多场比赛几乎同时结束时，事件监听可能都看不到对方未提交的数据。 */
     @Transactional
     void tickProgress() {
-        for (TournamentRecord tournament : tournaments.listRunning()) {
+        for (TournamentRecord tournament : TournamentConverters.records(
+                tournaments.selectRunning())) {
             try {
                 if (BracketPlanner.STAGE_LEAGUE.equals(tournament.bracketType())) {
                     advanceLeague(tournament);
@@ -175,7 +186,7 @@ class TournamentBracketService {
         if (total == 0 || finished < total) {
             return;
         }
-        int qualifierCount = Math.min(4, tournaments.acceptedPlayers(tournament.id()).size());
+        int qualifierCount = Math.min(4, acceptedPlayers(tournament.id()).size());
         int leagueRounds = Math.max(1, tournament.totalRounds()
                 - BracketPlanner.pagePlayoffRounds(qualifierCount));
 
@@ -184,14 +195,14 @@ class TournamentBracketService {
             if (tournaments.advanceRound(tournament.id(), current, nextRound) == 0) {
                 return;
             }
-            List<TournamentPlayerRecord> players = tournaments.acceptedPlayers(tournament.id());
+            List<TournamentPlayerRecord> players = acceptedPlayers(tournament.id());
             if (players.size() >= 6) {
                 generateSwissRound(tournament, players, nextRound);
             } else {
                 matches.activateRound(tournament.id(), BracketPlanner.STAGE_LEAGUE, nextRound);
             }
             broadcaster.broadcastTournament(
-                    tournaments.findById(tournament.id()).orElse(tournament));
+                    findTournament(tournament.id()).orElse(tournament));
             return;
         }
 
@@ -211,10 +222,10 @@ class TournamentBracketService {
         }
         for (MatchRecord match : BracketPlanner.planPagePlayoff(
                 tournament.id(), qualifiers, firstRound, System.currentTimeMillis())) {
-            matches.insertMatch(match);
+            matches.insert(MatchConverters.toEntity(match));
             ensureFirstGame(tournament, match);
         }
-        TournamentRecord pagePlayoff = tournaments.findById(tournament.id()).orElse(tournament);
+        TournamentRecord pagePlayoff = findTournament(tournament.id()).orElse(tournament);
         broadcaster.broadcastTournament(pagePlayoff);
         log.info("赛事 {} 进入页面淘汰赛：{} / {} / {} / {}",
                 pagePlayoff.id(), qualifiers.get(0).nickname(),
@@ -226,7 +237,8 @@ class TournamentBracketService {
     /** 把已具备双方、仍为 PENDING 的淘汰/页面淘汰对阵激活；并同步当前轮次展示。 */
     @Transactional
     void activatePendingMatches(TournamentRecord tournament) {
-        List<MatchRecord> all = matches.listByTournament(tournament.id());
+        List<MatchRecord> all = MatchConverters.records(
+                matches.selectByTournament(tournament.id()));
         boolean changed = false;
         for (MatchRecord match : all) {
             if (BracketPlanner.STATUS_BYE.equals(match.status())
@@ -258,7 +270,7 @@ class TournamentBracketService {
         }
         if (changed) {
             broadcaster.broadcastTournament(
-                    tournaments.findById(tournament.id()).orElse(tournament));
+                    findTournament(tournament.id()).orElse(tournament));
         }
     }
 
@@ -293,7 +305,7 @@ class TournamentBracketService {
                 ? finalMatch.player2Nickname() : finalMatch.player1Nickname();
         long now = System.currentTimeMillis();
         tournaments.finish(tournament.id(), championId, championNickname,
-                runnerUpId, runnerUpNickname, now);
+                runnerUpId, runnerUpNickname, SqlTime.toDateTime(now));
         if (TournamentService.KIND_TOURNAMENT.equals(tournament.kind())) {
             if (championId != null) {
                 stats.addTitle(championId, championNickname, 1, 0, PlayerStatRules.titlePoints(true));
@@ -302,7 +314,7 @@ class TournamentBracketService {
                 stats.addTitle(runnerUpId, runnerUpNickname, 0, 1, PlayerStatRules.titlePoints(false));
             }
         }
-        TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);
+        TournamentRecord finished = findTournament(tournament.id()).orElse(tournament);
         if (TournamentService.KIND_TOURNAMENT.equals(finished.kind())) {
             notifications.publishChampion(finished);
         }
@@ -315,7 +327,8 @@ class TournamentBracketService {
     private void finishWithoutLadder(TournamentRecord tournament,
                                      List<TournamentPlayerRecord> ranked) {
         if (ranked.isEmpty()) {
-            tournaments.cancel(tournament.id(), System.currentTimeMillis());
+            tournaments.cancel(tournament.id(),
+                    SqlTime.toDateTime(System.currentTimeMillis()));
             broadcaster.broadcastTournament(tournament);
             return;
         }
@@ -324,14 +337,14 @@ class TournamentBracketService {
         long now = System.currentTimeMillis();
         tournaments.finish(tournament.id(), champion.userId(), champion.nickname(),
                 runnerUp == null ? null : runnerUp.userId(),
-                runnerUp == null ? null : runnerUp.nickname(), now);
+                runnerUp == null ? null : runnerUp.nickname(), SqlTime.toDateTime(now));
         if (TournamentService.KIND_TOURNAMENT.equals(tournament.kind())) {
             stats.addTitle(champion.userId(), champion.nickname(), 1, 0, PlayerStatRules.titlePoints(true));
             if (runnerUp != null) {
                 stats.addTitle(runnerUp.userId(), runnerUp.nickname(), 0, 1, PlayerStatRules.titlePoints(false));
             }
         }
-        TournamentRecord finished = tournaments.findById(tournament.id()).orElse(tournament);
+        TournamentRecord finished = findTournament(tournament.id()).orElse(tournament);
         if (TournamentService.KIND_TOURNAMENT.equals(finished.kind())) {
             notifications.publishChampion(finished);
         }
@@ -340,11 +353,12 @@ class TournamentBracketService {
 
     private List<Standing> standings(String tournamentId) {
         Map<String, int[]> counters = new HashMap<>();
-        List<TournamentPlayerRecord> players = tournaments.acceptedPlayers(tournamentId);
+        List<TournamentPlayerRecord> players = acceptedPlayers(tournamentId);
         for (TournamentPlayerRecord player : players) {
             counters.put(player.userId(), new int[]{0, 0});
         }
-        for (MatchRecord match : matches.listByStage(tournamentId, BracketPlanner.STAGE_LEAGUE)) {
+        for (MatchRecord match : MatchConverters.records(
+                matches.selectByStage(tournamentId, BracketPlanner.STAGE_LEAGUE))) {
             boolean decided = BracketPlanner.STATUS_BYE.equals(match.status())
                     || "FINISHED".equals(match.status());
             if (!decided || match.winnerUserId() == null) {
@@ -377,8 +391,8 @@ class TournamentBracketService {
         if (remaining.isEmpty()) {
             return;
         }
-        List<MatchRecord> played = matches.listByStage(
-                tournament.id(), BracketPlanner.STAGE_LEAGUE);
+        List<MatchRecord> played = MatchConverters.records(
+                matches.selectByStage(tournament.id(), BracketPlanner.STAGE_LEAGUE));
         Set<String> playedPairs = new HashSet<>();
         Set<String> byeIds = new HashSet<>();
         for (MatchRecord match : played) {
@@ -439,7 +453,7 @@ class TournamentBracketService {
                     0, 0, null, null, System.currentTimeMillis(), null, null));
         }
         for (MatchRecord match : planned) {
-            matches.insertMatch(match);
+            matches.insert(MatchConverters.toEntity(match));
         }
     }
 
@@ -449,6 +463,21 @@ class TournamentBracketService {
         }
         matches.initFirstGame(match.id(), TournamentRules.resolveGame(tournament),
                 match.gameChooserUserId());
+    }
+
+    private List<TournamentPlayerRecord> acceptedPlayers(String tournamentId) {
+        return TournamentConverters.playerRecords(
+                tournaments.selectAcceptedPlayers(tournamentId));
+    }
+
+    private Optional<TournamentRecord> findTournament(String id) {
+        return Optional.ofNullable(tournaments.selectActiveById(id))
+                .map(TournamentConverters::toRecord);
+    }
+
+    private Optional<MatchRecord> findMatch(String id) {
+        return Optional.ofNullable(matches.selectById(id))
+                .map(MatchConverters::toRecord);
     }
 
     private record Standing(TournamentPlayerRecord player, int points, int wins) {
