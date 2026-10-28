@@ -7,11 +7,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SplittableRandom;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
  * 日志热点排查竞赛：双方在同一张热度网格上认领、复核、固化，并按占地持续得分。
  */
+@RequiredArgsConstructor
 @Component
 public class HeatmapEngine implements ArenaEngine<HeatmapEngine.HeatmapState> {
 
@@ -23,10 +25,6 @@ public class HeatmapEngine implements ArenaEngine<HeatmapEngine.HeatmapState> {
     private static final int MAX_HP = 6;
 
     private final ArenaProperties properties;
-
-    public HeatmapEngine(ArenaProperties properties) {
-        this.properties = properties;
-    }
 
     @Override
     public String gameId() {

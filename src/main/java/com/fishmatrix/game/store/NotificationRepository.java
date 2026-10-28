@@ -2,10 +2,12 @@ package com.fishmatrix.game.store;
 
 import com.fishmatrix.game.model.NotificationView;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+@RequiredArgsConstructor
 @Repository
 public class NotificationRepository {
 
@@ -20,10 +22,6 @@ public class NotificationRepository {
             SqlTime.millis(rs, "expires_at"));
 
     private final JdbcTemplate jdbc;
-
-    public NotificationRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void insert(NotificationView notification) {
         jdbc.update("""

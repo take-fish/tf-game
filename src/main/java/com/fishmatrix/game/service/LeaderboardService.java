@@ -8,12 +8,14 @@ import com.fishmatrix.game.model.ScoreResponse;
 import com.fishmatrix.game.store.PlayerStatRepository;
 import java.util.List;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
  * 排行榜：overall / qps-breakout 等返回综合榜；
  * 五子棋、盲棋按 gameId 返回各自的棋类榜。
  */
+@RequiredArgsConstructor
 @Service
 public class LeaderboardService {
 
@@ -23,10 +25,6 @@ public class LeaderboardService {
     private static final long MAX_SCORE = 1_000_000L;
 
     private final PlayerStatRepository stats;
-
-    public LeaderboardService(PlayerStatRepository stats) {
-        this.stats = stats;
-    }
 
     public List<LeaderboardEntry> leaderboard(String gameId, int limit) {
         if (gameId != null && GAME_LEADERBOARDS.contains(gameId)) {

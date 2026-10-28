@@ -7,10 +7,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+@RequiredArgsConstructor
 @Repository
 public class MatchRepository {
 
@@ -24,10 +26,6 @@ public class MatchRepository {
             rs.getString("captured_piece_type"), rs.getString("captured_piece_color"));
 
     private final JdbcTemplate jdbc;
-
-    public MatchRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void insertMatch(MatchRecord match) {
         jdbc.update("""

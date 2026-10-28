@@ -13,23 +13,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+@Slf4j
+@RequiredArgsConstructor
 @Component
 public class GameSessionRegistry {
 
-    private static final Logger log = LoggerFactory.getLogger(GameSessionRegistry.class);
-
     private final Map<String, GameSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
-
-    public GameSessionRegistry(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     public GameSession register(WebSocketSession socket, GameIdentity identity) {
         GameSession session = new GameSession(socket, identity);

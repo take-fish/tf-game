@@ -7,6 +7,7 @@ import com.fishmatrix.game.model.TournamentView;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,15 +17,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1/game/tournaments")
 public class TournamentController {
 
     private final TournamentService tournaments;
-
-    public TournamentController(TournamentService tournaments) {
-        this.tournaments = tournaments;
-    }
 
     @GetMapping
     public Map<String, Object> list(@RequestParam(defaultValue = "20") int limit) {

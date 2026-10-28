@@ -2,6 +2,7 @@ package com.fishmatrix.game.config;
 
 import com.fishmatrix.game.auth.WsTicketHandshakeInterceptor;
 import com.fishmatrix.game.ws.GameWebSocketHandler;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -9,6 +10,7 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
+@RequiredArgsConstructor
 @Configuration
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
@@ -16,15 +18,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final GameWebSocketHandler gameWebSocketHandler;
     private final WsTicketHandshakeInterceptor ticketInterceptor;
     private final GameProperties properties;
-
-    public WebSocketConfig(
-            GameWebSocketHandler gameWebSocketHandler,
-            WsTicketHandshakeInterceptor ticketInterceptor,
-            GameProperties properties) {
-        this.gameWebSocketHandler = gameWebSocketHandler;
-        this.ticketInterceptor = ticketInterceptor;
-        this.properties = properties;
-    }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {

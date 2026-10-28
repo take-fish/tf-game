@@ -3,10 +3,12 @@ package com.fishmatrix.game.store;
 import com.fishmatrix.game.model.ChatMessageView;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+@RequiredArgsConstructor
 @Repository
 public class ChatRepository {
 
@@ -22,10 +24,6 @@ public class ChatRepository {
             SqlTime.millis(rs, "created_at"));
 
     private final JdbcTemplate jdbc;
-
-    public ChatRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void insert(ChatMessageView message) {
         jdbc.update("""

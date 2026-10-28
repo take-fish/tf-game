@@ -6,6 +6,7 @@ import com.fishmatrix.game.service.BlindXiangqiEngine.Piece;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -13,16 +14,13 @@ import org.springframework.stereotype.Repository;
 /**
  * 盲棋服务端私有状态：反面棋的真实颜色与兵种只落在这里，不进入公开视图。
  */
+@RequiredArgsConstructor
 @Repository
 public class BlindXiangqiRepository {
 
     private static final RowMapper<Piece> PIECE_MAPPER = (rs, rowNum) -> map(rs);
 
     private final JdbcTemplate jdbc;
-
-    public BlindXiangqiRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void insertPieces(String roundId, List<Piece> pieces) {
         jdbc.batchUpdate("""

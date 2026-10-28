@@ -2,6 +2,7 @@ package com.fishmatrix.game.store;
 
 import com.fishmatrix.game.model.LeaderboardEntry;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Repository;
  * 大榜只认赛事头衔：冠军 30 分、亚军 10 分；对局内得分仅用于单场判定，不进入大榜。
  * matches/wins/losses/best_score 继续保留作辅助统计与分游戏榜展示。
  */
+@RequiredArgsConstructor
 @Repository
 public class PlayerStatRepository {
 
@@ -18,10 +20,6 @@ public class PlayerStatRepository {
     public static final int RUNNER_UP_POINTS = 10;
 
     private final JdbcTemplate jdbc;
-
-    public PlayerStatRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void ensure(String userId, String nickname) {
         long now = System.currentTimeMillis();

@@ -9,6 +9,7 @@ import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
  * - CHAMPION：赛事结束后的顶部横幅。
  * 通知同时落库（轮询兜底）并通过 WebSocket 广播。
  */
+@RequiredArgsConstructor
 @Service
 public class GameNotificationService {
 
@@ -26,15 +28,6 @@ public class GameNotificationService {
     private final NotificationRepository repository;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
-
-    public GameNotificationService(
-            NotificationRepository repository,
-            GameSessionRegistry registry,
-            GameProperties properties) {
-        this.repository = repository;
-        this.registry = registry;
-        this.properties = properties;
-    }
 
     public void publishFinalStart(TournamentRecord tournament, MatchRecord match) {
         if (match == null || match.player1UserId() == null || match.player2UserId() == null) {

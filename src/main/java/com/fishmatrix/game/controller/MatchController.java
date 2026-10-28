@@ -11,6 +11,7 @@ import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1/game/matches")
 public class MatchController {
@@ -26,13 +28,6 @@ public class MatchController {
     private final MatchService matches;
     private final GameChatService chats;
     private final TournamentService tournaments;
-
-    public MatchController(MatchService matches, GameChatService chats,
-                           TournamentService tournaments) {
-        this.matches = matches;
-        this.chats = chats;
-        this.tournaments = tournaments;
-    }
 
     @GetMapping("/active")
     public Map<String, Object> active() {

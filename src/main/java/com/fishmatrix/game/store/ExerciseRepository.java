@@ -3,6 +3,7 @@ package com.fishmatrix.game.store;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Repository;
  * 集群巡检对抗的房间、成员与战绩持久化。
  * 实时状态每秒写一次 state_json，服务重启后可以恢复仍在进行的房间。
  */
+@RequiredArgsConstructor
 @Repository
 public class ExerciseRepository {
 
@@ -19,10 +21,6 @@ public class ExerciseRepository {
     private static final RowMapper<ResultRow> RESULT_MAPPER = (rs, rowNum) -> mapResult(rs);
 
     private final JdbcTemplate jdbc;
-
-    public ExerciseRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public void insertRoom(RoomRow room) {
         jdbc.update("""

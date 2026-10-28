@@ -18,8 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -28,10 +27,10 @@ import org.springframework.stereotype.Service;
  * 实时竞技场调度：200ms tick、4Hz 广播、每秒快照、动作限流与幂等。
  * 内存中的 state 是权威副本，state_json 用于服务重启后恢复。
  */
+@Slf4j
 @Service
 public class ArenaService {
 
-    private static final Logger log = LoggerFactory.getLogger(ArenaService.class);
     private static final long BROADCAST_INTERVAL_MILLIS = 250;
     private static final int RECENT_ACTION_LIMIT = 64;
 

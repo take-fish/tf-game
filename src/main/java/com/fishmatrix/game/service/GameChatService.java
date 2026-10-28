@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
  * - PUBLIC：公开房间，所有连接观战页的用户可发言、可回看。
  * - PLAYER_DM：仅比赛双方可见，落库后赛后仍可回看。
  */
+@RequiredArgsConstructor
 @Service
 public class GameChatService {
 
@@ -33,19 +35,6 @@ public class GameChatService {
     private final MatchRepository matches;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
-
-    public GameChatService(
-            ChatRepository chatRepository,
-            TournamentRepository tournaments,
-            MatchRepository matches,
-            GameSessionRegistry registry,
-            GameProperties properties) {
-        this.chatRepository = chatRepository;
-        this.tournaments = tournaments;
-        this.matches = matches;
-        this.registry = registry;
-        this.properties = properties;
-    }
 
     public ChatMessageView send(GameIdentity user, SendChatRequest request) {
         if (request == null) {

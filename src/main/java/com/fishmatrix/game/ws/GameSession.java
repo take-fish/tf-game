@@ -1,18 +1,15 @@
 package com.fishmatrix.game.ws;
 
 import com.fishmatrix.game.model.GameIdentity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.socket.WebSocketSession;
 
+@RequiredArgsConstructor
 public class GameSession {
 
     private final WebSocketSession socket;
     private final GameIdentity identity;
     private volatile String watchingMatchId;
-
-    public GameSession(WebSocketSession socket, GameIdentity identity) {
-        this.socket = socket;
-        this.identity = identity;
-    }
 
     public WebSocketSession getSocket() {
         return socket;

@@ -7,6 +7,7 @@ import com.fishmatrix.game.model.TournamentView;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,15 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 一对一约战入口。约战只对双方可见，不进入演练大厅，也没有聊天与观战。
  */
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1/game/duels")
 public class DuelController {
 
     private final TournamentService duels;
-
-    public DuelController(TournamentService duels) {
-        this.duels = duels;
-    }
 
     @GetMapping
     public Map<String, Object> list(@RequestParam(defaultValue = "20") int limit) {
