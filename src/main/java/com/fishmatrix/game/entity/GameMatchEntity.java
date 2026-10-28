@@ -48,6 +48,16 @@ public class GameMatchEntity {
 
     private String gameChooserUserId;
 
+    /** 管理员可隐藏比赛记录；默认可见。 */
+    private Boolean visible;
+
+    /** 展示权重，越大越靠前，0 表示按创建时间排序。 */
+    private Integer displayOrder;
+
+    private String managedBy;
+
+    private LocalDateTime managedAt;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

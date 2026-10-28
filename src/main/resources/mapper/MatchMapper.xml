@@ -231,4 +231,36 @@
      WHERE id = #{roundId} AND status = 'REST'
   </update>
 
+  <!--
+    比赛记录列表：只取赛事类记录（约战不进记录列表），排除已删除赛事。
+    管理台传 includeHidden = true 才能看到被隐藏的行。
+  -->
+  <select id="selectRecordMatches" resultType="com.fishmatrix.game.entity.GameMatchEntity">
+    SELECT m.id, m.tournament_id, m.round_no, m.slot_no, m.stage, m.status,
+           m.player1_user_id, m.player1_nickname, m.player2_user_id, m.player2_nickname,
+           m.player1_score, m.player2_score, m.winner_user_id, m.next_match_id,
+           m.first_game_id, m.game_chooser_user_id, m.visible, m.display_order,
+           m.managed_by, m.managed_at, m.created_at, m.started_at, m.finished_at
+      FROM game_match m
+      JOIN game_tournament t ON t.id = m.tournament_id
+     WHERE t.deleted_at IS NULL
+       AND t.kind = 'TOURNAMENT'
+     <if test="!includeHidden">
+       AND m.visible = 1
+     </if>
+     ORDER BY m.display_order DESC, m.created_at DESC
+     LIMIT #{limit}
+  </select>
+
+  <update id="updateRecordManaged">
+    UPDATE game_match
+    <set>
+      <if test="visible != null">visible = #{visible},</if>
+      <if test="displayOrder != null">display_order = #{displayOrder},</if>
+      managed_by = #{managedBy},
+      managed_at = #{now}
+    </set>
+     WHERE id = #{matchId}
+  </update>
+
 </mapper>
