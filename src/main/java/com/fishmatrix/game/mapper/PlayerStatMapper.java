@@ -26,6 +26,42 @@ public interface PlayerStatMapper extends BaseMapper<GamePlayerStatEntity> {
     List<GamePlayerGameStatEntity> selectTopByGame(@Param("gameId") String gameId,
             @Param("limit") int limit);
 
+    /** 管理台回读分游戏榜单行。 */
+    GamePlayerGameStatEntity selectGameStat(@Param("gameId") String gameId,
+            @Param("userId") String userId);
+    /** 管理台：综合榜全量（含隐藏行），按展示权重与战绩排序。 */
+    List<GamePlayerStatEntity> selectAllOverall(@Param("limit") int limit);
+
+    /** 管理台：分游戏榜全量（含隐藏行）。 */
+    List<GamePlayerGameStatEntity> selectAllByGame(@Param("gameId") String gameId,
+            @Param("limit") int limit);
+
+    /** 管理员修正综合榜数值；null 参数表示该列不改，同时写入操作审计。 */
+    int updateManaged(@Param("userId") String userId,
+            @Param("matches") Integer matches,
+            @Param("wins") Integer wins,
+            @Param("losses") Integer losses,
+            @Param("points") Integer points,
+            @Param("championships") Integer championships,
+            @Param("runnerUps") Integer runnerUps,
+            @Param("bestScore") Long bestScore,
+            @Param("visible") Boolean visible,
+            @Param("displayOrder") Integer displayOrder,
+            @Param("managedBy") String managedBy,
+            @Param("now") LocalDateTime now);
+
+    /** 管理员修正分游戏榜数值。 */
+    int updateManagedGame(@Param("gameId") String gameId,
+            @Param("userId") String userId,
+            @Param("matches") Integer matches,
+            @Param("wins") Integer wins,
+            @Param("losses") Integer losses,
+            @Param("points") Integer points,
+            @Param("championships") Integer championships,
+            @Param("visible") Boolean visible,
+            @Param("displayOrder") Integer displayOrder,
+            @Param("managedBy") String managedBy,
+            @Param("now") LocalDateTime now);
     Long selectBestScore(@Param("userId") String userId);
 
     Long selectRank(@Param("userId") String userId);

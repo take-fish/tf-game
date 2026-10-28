@@ -20,6 +20,19 @@ public interface MatchMapper extends BaseMapper<GameMatchEntity> {
 
     List<GameMatchEntity> selectByTournament(@Param("tournamentId") String tournamentId);
 
+    /**
+     * 比赛记录列表（只取赛事类，排除已删除赛事）。按展示权重与创建时间倒序，
+     * 传 {@code includeHidden = false} 时只返回管理员设为可见的记录。
+     */
+    List<GameMatchEntity> selectRecordMatches(@Param("includeHidden") boolean includeHidden,
+            @Param("limit") int limit);
+
+    /** 管理员调整比赛记录展示：null 参数表示该列不改，同时写入操作审计。 */
+    int updateRecordManaged(@Param("matchId") String matchId,
+            @Param("visible") Boolean visible,
+            @Param("displayOrder") Integer displayOrder,
+            @Param("managedBy") String managedBy,
+            @Param("now") LocalDateTime now);
     /** 复合主键表按固定列顺序写入。 */
     int insertRound(GameRoundEntity round);
 

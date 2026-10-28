@@ -3,10 +3,17 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fishmatrix.game.mapper.PlayerStatMapper">
 
+  <!--
+    排序口径：管理员设置的展示权重优先（越大越靠前），权重相同再按战绩。
+    公开榜单只返回 visible = 1 的行，管理台查询走 selectAll* 不过滤。
+  -->
   <select id="selectTop" resultType="com.fishmatrix.game.entity.GamePlayerStatEntity">
-    SELECT user_id, nickname, championships, runner_ups, points
+    SELECT user_id, nickname, matches, wins, losses, points, championships, runner_ups,
+           best_score, visible, display_order, managed_by, managed_at, updated_at
       FROM game_player_stat
-     ORDER BY points DESC, championships DESC, runner_ups DESC, updated_at ASC
+     WHERE visible = 1
+     ORDER BY display_order DESC, points DESC, championships DESC, runner_ups DESC,
+              updated_at ASC
      LIMIT #{limit}
   </select>
 
@@ -20,13 +27,38 @@
   </insert>
 
   <select id="selectTopByGame" resultType="com.fishmatrix.game.entity.GamePlayerGameStatEntity">
-    SELECT user_id, nickname, points, matches, wins, losses, championships
+    SELECT game_id, user_id, nickname, matches, wins, losses, points, championships,
+           visible, display_order, managed_by, managed_at, updated_at
       FROM game_player_game_stat
-     WHERE game_id = #{gameId}
-     ORDER BY points DESC, championships DESC, wins DESC, updated_at ASC
+     WHERE game_id = #{gameId} AND visible = 1
+     ORDER BY display_order DESC, points DESC, championships DESC, wins DESC, updated_at ASC
      LIMIT #{limit}
   </select>
 
+  <select id="selectAllOverall" resultType="com.fishmatrix.game.entity.GamePlayerStatEntity">
+    SELECT user_id, nickname, matches, wins, losses, points, championships, runner_ups,
+           best_score, visible, display_order, managed_by, managed_at, updated_at
+      FROM game_player_stat
+     ORDER BY display_order DESC, points DESC, championships DESC, runner_ups DESC,
+              updated_at ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectAllByGame" resultType="com.fishmatrix.game.entity.GamePlayerGameStatEntity">
+    SELECT game_id, user_id, nickname, matches, wins, losses, points, championships,
+           visible, display_order, managed_by, managed_at, updated_at
+      FROM game_player_game_stat
+     WHERE game_id = #{gameId}
+     ORDER BY display_order DESC, points DESC, championships DESC, wins DESC, updated_at ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectGameStat" resultType="com.fishmatrix.game.entity.GamePlayerGameStatEntity">
+    SELECT game_id, user_id, nickname, matches, wins, losses, points, championships,
+           visible, display_order, managed_by, managed_at, updated_at
+      FROM game_player_game_stat
+     WHERE game_id = #{gameId} AND user_id = #{userId}
+  </select>
   <select id="selectBestScore" resultType="java.lang.Long">
     SELECT best_score FROM game_player_stat WHERE user_id = #{userId}
   </select>
@@ -35,10 +67,11 @@
     SELECT position FROM (
       SELECT user_id,
              ROW_NUMBER() OVER (
-                 ORDER BY points DESC, championships DESC,
+                 ORDER BY display_order DESC, points DESC, championships DESC,
                           runner_ups DESC, updated_at ASC
              ) AS position
         FROM game_player_stat
+       WHERE visible = 1
     ) ranked
     WHERE user_id = #{userId}
   </select>
@@ -90,6 +123,43 @@
        SET best_score = GREATEST(best_score, #{score}), nickname = #{nickname},
            updated_at = #{now}
      WHERE user_id = #{userId}
+  </update>
+
+  <!-- 管理员修正：只覆盖提交了的列，并记录操作人与时间。 -->
+  <update id="updateManaged">
+    UPDATE game_player_stat
+    <set>
+      <if test="matches != null">matches = #{matches},</if>
+      <if test="wins != null">wins = #{wins},</if>
+      <if test="losses != null">losses = #{losses},</if>
+      <if test="points != null">points = #{points},</if>
+      <if test="championships != null">championships = #{championships},</if>
+      <if test="runnerUps != null">runner_ups = #{runnerUps},</if>
+      <if test="bestScore != null">best_score = #{bestScore},</if>
+      <if test="visible != null">visible = #{visible},</if>
+      <if test="displayOrder != null">display_order = #{displayOrder},</if>
+      managed_by = #{managedBy},
+      managed_at = #{now},
+      updated_at = #{now}
+    </set>
+     WHERE user_id = #{userId}
+  </update>
+
+  <update id="updateManagedGame">
+    UPDATE game_player_game_stat
+    <set>
+      <if test="matches != null">matches = #{matches},</if>
+      <if test="wins != null">wins = #{wins},</if>
+      <if test="losses != null">losses = #{losses},</if>
+      <if test="points != null">points = #{points},</if>
+      <if test="championships != null">championships = #{championships},</if>
+      <if test="visible != null">visible = #{visible},</if>
+      <if test="displayOrder != null">display_order = #{displayOrder},</if>
+      managed_by = #{managedBy},
+      managed_at = #{now},
+      updated_at = #{now}
+    </set>
+     WHERE game_id = #{gameId} AND user_id = #{userId}
   </update>
 
 </mapper>
