@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS game_player_stat (
     championships INT NOT NULL DEFAULT 0,
     runner_ups INT NOT NULL DEFAULT 0,
     best_score BIGINT NOT NULL DEFAULT 0,
+    visible TINYINT(1) NOT NULL DEFAULT 1,
+    display_order INT NOT NULL DEFAULT 0,
+    managed_by VARCHAR(64) NULL,
+    managed_at TIMESTAMP(3) NULL,
     updated_at TIMESTAMP(3) NOT NULL,
     PRIMARY KEY (user_id)
 );
@@ -21,6 +25,10 @@ CREATE TABLE IF NOT EXISTS game_player_game_stat (
     losses INT NOT NULL DEFAULT 0,
     points INT NOT NULL DEFAULT 0,
     championships INT NOT NULL DEFAULT 0,
+    visible TINYINT(1) NOT NULL DEFAULT 1,
+    display_order INT NOT NULL DEFAULT 0,
+    managed_by VARCHAR(64) NULL,
+    managed_at TIMESTAMP(3) NULL,
     updated_at TIMESTAMP(3) NOT NULL,
     PRIMARY KEY (game_id, user_id)
 );
@@ -80,6 +88,10 @@ CREATE TABLE IF NOT EXISTS game_match (
     next_match_id VARCHAR(36) NULL,
     first_game_id VARCHAR(32) NULL,
     game_chooser_user_id VARCHAR(64) NULL,
+    visible TINYINT(1) NOT NULL DEFAULT 1,
+    display_order INT NOT NULL DEFAULT 0,
+    managed_by VARCHAR(64) NULL,
+    managed_at TIMESTAMP(3) NULL,
     created_at TIMESTAMP(3) NOT NULL,
     started_at TIMESTAMP(3) NULL,
     finished_at TIMESTAMP(3) NULL,

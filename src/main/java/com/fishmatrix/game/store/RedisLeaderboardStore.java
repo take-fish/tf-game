@@ -4,21 +4,19 @@ import com.fishmatrix.game.model.LeaderboardEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Repository;
 
+@RequiredArgsConstructor
 @Repository
 public class RedisLeaderboardStore implements LeaderboardStore {
 
     private static final String PREFIX = "tf:game:leaderboard:";
 
     private final StringRedisTemplate redis;
-
-    public RedisLeaderboardStore(StringRedisTemplate redis) {
-        this.redis = redis;
-    }
 
     @Override
     public long submit(String gameId, String userId, String nickname, long score) {

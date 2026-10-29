@@ -15,8 +15,8 @@ import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -27,13 +27,13 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
  * 比赛 WebSocket：大厅、观战订阅、准备/落子/翻棋/走子/认输、公开与选手聊天。
  * 身份来自一次性 ticket 的握手属性，不信任客户端自报。
  */
+@Slf4j
+@RequiredArgsConstructor
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
 
     public static final String ATTR_IDENTITY = "game.identity";
     public static final String ATTR_TRACE_CONTEXT = "game.traceContext";
-
-    private static final Logger log = LoggerFactory.getLogger(GameWebSocketHandler.class);
 
     private final TournamentService tournaments;
     private final MatchService matches;
@@ -42,23 +42,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final ArenaService arena;
     private final ExerciseService exercise;
-
-    public GameWebSocketHandler(
-            TournamentService tournaments,
-            MatchService matches,
-            GameChatService chats,
-            GameSessionRegistry registry,
-            ObjectMapper objectMapper,
-            ArenaService arena,
-            ExerciseService exercise) {
-        this.tournaments = tournaments;
-        this.matches = matches;
-        this.chats = chats;
-        this.registry = registry;
-        this.objectMapper = objectMapper;
-        this.arena = arena;
-        this.exercise = exercise;
-    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession socket) {

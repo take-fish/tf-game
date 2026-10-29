@@ -7,10 +7,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.common.auth.CurrentUser;
+import com.fishmatrix.game.entity.GamePlayerGameStatEntity;
+import com.fishmatrix.game.entity.GamePlayerStatEntity;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
-import com.fishmatrix.game.store.PlayerStatRepository;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,19 +20,18 @@ import org.junit.jupiter.api.Test;
 
 class LeaderboardServiceTest {
 
-    private PlayerStatRepository stats;
+    private PlayerStatMapper stats;
     private LeaderboardService service;
 
     @BeforeEach
     void setUp() {
-        stats = mock(PlayerStatRepository.class);
+        stats = mock(PlayerStatMapper.class);
         service = new LeaderboardService(stats);
     }
 
     @Test
     void returnsOverallLeaderboard() {
-        when(stats.top(10)).thenReturn(List.of(
-                new LeaderboardEntry(1, "u2", "乙", 2, 1, 70)));
+        when(stats.selectTop(10)).thenReturn(List.of(stat("u2", "乙", 2, 1, 70)));
 
         List<LeaderboardEntry> entries = service.leaderboard("qps-breakout", 10);
 
@@ -43,27 +44,27 @@ class LeaderboardServiceTest {
 
     @Test
     void returnsPerGameLeaderboardForBoardGames() {
-        when(stats.topByGame("blind-xiangqi", 10)).thenReturn(List.of(
-                new LeaderboardEntry(1, "u3", "丙", 30, 30, 2, 2, 0, 0, 0)));
+        when(stats.selectTopByGame("blind-xiangqi", 10)).thenReturn(List.of(
+                gameStat("u3", "丙", 30, 2, 2, 0, 0)));
 
         List<LeaderboardEntry> entries = service.leaderboard("blind-xiangqi", 10);
 
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).userId()).isEqualTo("u3");
-        verify(stats).topByGame("blind-xiangqi", 10);
+        verify(stats).selectTopByGame("blind-xiangqi", 10);
     }
 
     @Test
     void submitsBreakoutScoreWithServerIdentity() {
-        when(stats.bestScore("u7")).thenReturn(300L);
-        when(stats.rank("u7")).thenReturn(2L);
+        when(stats.selectBestScore("u7")).thenReturn(300L);
+        when(stats.selectRank("u7")).thenReturn(2L);
 
         ScoreResponse response = service.submit(
                 new ScoreRequest("qps-breakout", "forged", "伪造昵称", 300), user(7, "甲"));
 
         assertThat(response.bestScore()).isEqualTo(300);
         assertThat(response.rank()).isEqualTo(2);
-        verify(stats).recordBreakoutScore("u7", "甲", 300);
+        verify(stats).raiseBestScore("u7", "甲", 300);
     }
 
     @Test
@@ -80,6 +81,31 @@ class LeaderboardServiceTest {
                 new ScoreRequest("qps-breakout", "u1", "甲", 10), user(1, " ")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("昵称");
+    }
+
+    private static GamePlayerStatEntity stat(String userId, String nickname,
+                                             int championships, int runnerUps, int points) {
+        GamePlayerStatEntity entity = new GamePlayerStatEntity();
+        entity.setUserId(userId);
+        entity.setNickname(nickname);
+        entity.setChampionships(championships);
+        entity.setRunnerUps(runnerUps);
+        entity.setPoints(points);
+        return entity;
+    }
+
+    private static GamePlayerGameStatEntity gameStat(String userId, String nickname, int points,
+                                                     int matches, int wins, int losses,
+                                                     int championships) {
+        GamePlayerGameStatEntity entity = new GamePlayerGameStatEntity();
+        entity.setUserId(userId);
+        entity.setNickname(nickname);
+        entity.setPoints(points);
+        entity.setMatches(matches);
+        entity.setWins(wins);
+        entity.setLosses(losses);
+        entity.setChampionships(championships);
+        return entity;
     }
 
     private static CurrentUser user(long id, String nickname) {

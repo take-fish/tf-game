@@ -6,7 +6,8 @@ import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.RoundRecord;
-import com.fishmatrix.game.store.MatchRepository;
+import com.fishmatrix.game.converter.MatchConverters;
+import com.fishmatrix.game.mapper.MatchMapper;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -15,11 +16,11 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -28,14 +29,14 @@ import org.springframework.stereotype.Service;
  * 实时竞技场调度：200ms tick、4Hz 广播、每秒快照、动作限流与幂等。
  * 内存中的 state 是权威副本，state_json 用于服务重启后恢复。
  */
+@Slf4j
 @Service
 public class ArenaService {
 
-    private static final Logger log = LoggerFactory.getLogger(ArenaService.class);
     private static final long BROADCAST_INTERVAL_MILLIS = 250;
     private static final int RECENT_ACTION_LIMIT = 64;
 
-    private final MatchRepository matches;
+    private final MatchMapper matches;
     private final GameSessionRegistry registry;
     private final ArenaProperties properties;
     private final ApplicationEventPublisher publisher;
@@ -46,7 +47,7 @@ public class ArenaService {
     private volatile long lastDiscoveryAt;
 
     public ArenaService(
-            MatchRepository matches,
+            MatchMapper matches,
             GameSessionRegistry registry,
             ArenaProperties properties,
             ApplicationEventPublisher publisher,
@@ -111,7 +112,8 @@ public class ArenaService {
             throw GameException.conflict("GAME_ARENA_DISABLED", "实时竞技场尚未启用");
         }
         recover();
-        MatchRecord match = matches.findById(matchId)
+        MatchRecord match = Optional.ofNullable(matches.selectById(matchId))
+                .map(MatchConverters::toRecord)
                 .orElseThrow(() -> GameException.notFound("比赛不存在"));
         if (!"RUNNING".equals(match.status())) {
             throw GameException.conflict("GAME_MATCH_NOT_RUNNING", "比赛尚未开始");
@@ -119,7 +121,8 @@ public class ArenaService {
         if (!isParticipant(match, user.userId())) {
             throw GameException.forbidden("只有参赛选手可以操作本局");
         }
-        RoundRecord round = matches.latestRound(matchId)
+        RoundRecord round = Optional.ofNullable(matches.selectLatestRound(matchId))
+                .map(MatchConverters::toRecord)
                 .orElseThrow(() -> GameException.conflict("GAME_ROUND_MISSING", "对局尚未开始"));
         if (!"RUNNING".equals(round.status())) {
             throw GameException.conflict("GAME_ROUND_NOT_RUNNING", "当前小局不在进行中");
@@ -293,11 +296,14 @@ public class ArenaService {
     /** 新开的小局与重启后的存量小局都通过该扫描进入内存调度。 */
     private void scanRunningRounds() {
         try {
-            for (RoundRecord round : matches.listRunningArenaRounds(ArenaGames.GOMOKU)) {
+            for (RoundRecord round : MatchConverters.roundRecords(
+                    matches.selectRunningArenaRounds(ArenaGames.GOMOKU))) {
                 if (slots.containsKey(round.id())) {
                     continue;
                 }
-                MatchRecord match = matches.findById(round.matchId()).orElse(null);
+                MatchRecord match = Optional.ofNullable(matches.selectById(round.matchId()))
+                        .map(MatchConverters::toRecord)
+                        .orElse(null);
                 if (match == null || !"RUNNING".equals(match.status())) {
                     continue;
                 }

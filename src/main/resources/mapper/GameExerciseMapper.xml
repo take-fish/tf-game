@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.GameExerciseMapper">
+
+  <update id="updateRoomState">
+    UPDATE game_exercise_room
+       SET state_json = #{stateJson}, state_version = #{stateVersion}, status = #{status}
+     WHERE id = #{roomId}
+  </update>
+
+  <insert id="insertMember">
+    INSERT INTO game_exercise_member
+        (room_id, user_id, nickname, team, ready, bot, score, kills, deaths, assists,
+         joined_at, left_at)
+    VALUES
+        (#{roomId}, #{userId}, #{nickname}, #{team}, #{ready}, #{bot}, #{score}, #{kills},
+         #{deaths}, #{assists}, #{joinedAt}, #{leftAt})
+  </insert>
+
+  <insert id="insertResult">
+    INSERT INTO game_exercise_result
+        (id, room_id, mode, user_id, nickname, team, rank_no, score, kills, deaths, assists,
+         winner, created_at)
+    VALUES
+        (#{id}, #{roomId}, #{mode}, #{userId}, #{nickname}, #{team}, #{rankNo}, #{score},
+         #{kills}, #{deaths}, #{assists}, #{winner}, #{createdAt})
+  </insert>
+
+  <update id="finishRoom">
+    UPDATE game_exercise_room
+       SET status = 'FINISHED', winner_user_id = #{winnerUserId}, winner_team = #{winnerTeam},
+           finish_reason = #{reason}, state_json = #{stateJson}, state_version = #{stateVersion},
+           finished_at = #{now}
+     WHERE id = #{roomId}
+  </update>
+
+  <update id="cancelRoom">
+    UPDATE game_exercise_room
+       SET status = 'CANCELLED', finish_reason = #{reason}, finished_at = #{now}
+     WHERE id = #{roomId} AND status = 'WAITING'
+  </update>
+
+  <update id="updateMemberReady">
+    UPDATE game_exercise_member SET ready = #{ready}
+     WHERE room_id = #{roomId} AND user_id = #{userId}
+  </update>
+
+  <update id="updateMemberLeft">
+    UPDATE game_exercise_member SET left_at = #{now}
+     WHERE room_id = #{roomId} AND user_id = #{userId} AND left_at IS NULL
+  </update>
+
+  <update id="updateMemberStats">
+    UPDATE game_exercise_member
+       SET score = #{score}, kills = #{kills}, deaths = #{deaths}, assists = #{assists}
+     WHERE room_id = #{roomId} AND user_id = #{userId}
+  </update>
+
+  <select id="selectRecentResults" resultType="com.fishmatrix.game.entity.GameExerciseResultEntity">
+    SELECT * FROM game_exercise_result
+     WHERE mode &lt;&gt; 'TRAINING'
+     ORDER BY created_at DESC, rank_no ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectRunningRooms" resultType="com.fishmatrix.game.entity.GameExerciseRoomEntity">
+    SELECT * FROM game_exercise_room
+     WHERE status = 'RUNNING' AND state_json IS NOT NULL
+     ORDER BY started_at ASC
+  </select>
+
+  <select id="selectMembers" resultType="com.fishmatrix.game.entity.GameExerciseMemberEntity">
+    SELECT * FROM game_exercise_member
+     WHERE room_id = #{roomId}
+     ORDER BY joined_at ASC
+  </select>
+
+</mapper>

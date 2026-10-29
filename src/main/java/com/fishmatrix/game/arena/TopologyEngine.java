@@ -6,12 +6,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
  * 混沌工程攻防演练：攻击方注入流量，防守方扩容、切流、限流，核心网关过载 3 秒即失守。
  * 背景流量脚本对双方防守局完全一致，保证换边公平。
  */
+@RequiredArgsConstructor
 @Component
 public class TopologyEngine implements ArenaEngine<TopologyEngine.TopologyState> {
 
@@ -22,10 +24,6 @@ public class TopologyEngine implements ArenaEngine<TopologyEngine.TopologyState>
     private static final long BREACH_HOLD_MILLIS = 3000;
 
     private final ArenaProperties properties;
-
-    public TopologyEngine(ArenaProperties properties) {
-        this.properties = properties;
-    }
 
     @Override
     public String gameId() {

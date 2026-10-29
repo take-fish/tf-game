@@ -1,19 +1,22 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.common.auth.CurrentUser;
+import com.fishmatrix.game.converter.PlayerStatConverters;
+import com.fishmatrix.game.mapper.PlayerStatMapper;
 import com.fishmatrix.game.model.GameIds;
 import com.fishmatrix.game.model.LeaderboardEntry;
 import com.fishmatrix.game.model.ScoreRequest;
 import com.fishmatrix.game.model.ScoreResponse;
-import com.fishmatrix.game.store.PlayerStatRepository;
 import java.util.List;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
  * 排行榜：overall / qps-breakout 等返回综合榜；
  * 五子棋、盲棋按 gameId 返回各自的棋类榜。
  */
+@RequiredArgsConstructor
 @Service
 public class LeaderboardService {
 
@@ -22,17 +25,14 @@ public class LeaderboardService {
             Set.of(GameIds.HEATMAP_GOMOKU, GameIds.BLIND_XIANGQI);
     private static final long MAX_SCORE = 1_000_000L;
 
-    private final PlayerStatRepository stats;
-
-    public LeaderboardService(PlayerStatRepository stats) {
-        this.stats = stats;
-    }
+    private final PlayerStatMapper stats;
 
     public List<LeaderboardEntry> leaderboard(String gameId, int limit) {
+        int safeLimit = Math.min(50, Math.max(1, limit));
         if (gameId != null && GAME_LEADERBOARDS.contains(gameId)) {
-            return stats.topByGame(gameId, limit);
+            return PlayerStatConverters.gameEntries(stats.selectTopByGame(gameId, safeLimit));
         }
-        return stats.top(limit);
+        return PlayerStatConverters.entries(stats.selectTop(safeLimit));
     }
 
     public ScoreResponse submit(ScoreRequest request, CurrentUser user) {
@@ -49,7 +49,9 @@ public class LeaderboardService {
         if (nickname.isEmpty() || nickname.codePointCount(0, nickname.length()) > 32) {
             throw new IllegalArgumentException("昵称不合法");
         }
-        stats.recordBreakoutScore(user.userId(), nickname, request.score());
-        return new ScoreResponse(stats.bestScore(user.userId()), stats.rank(user.userId()));
+        stats.raiseBestScore(user.userId(), nickname, request.score());
+        return new ScoreResponse(
+                PlayerStatConverters.valueOrZero(stats.selectBestScore(user.userId())),
+                PlayerStatConverters.valueOrZero(stats.selectRank(user.userId())));
     }
 }

@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fishmatrix.game.mapper.MatchMapper">
+
+  <select id="selectByTournament" resultType="com.fishmatrix.game.entity.GameMatchEntity">
+    SELECT * FROM game_match
+     WHERE tournament_id = #{tournamentId}
+     ORDER BY round_no ASC, slot_no ASC
+  </select>
+
+  <insert id="insertRound">
+    INSERT INTO game_round
+        (id, match_id, game_id, game_no, status, black_user_id, white_user_id,
+         attacker_user_id, turn_user_id, winner_user_id, move_count, last_move_at,
+         rest_until, ready_user_ids, state_json, state_version, started_at, ends_at,
+         finished_at)
+    VALUES
+        (#{id}, #{matchId}, #{gameId}, #{gameNo}, #{status}, #{blackUserId}, #{whiteUserId},
+         #{attackerUserId}, #{turnUserId}, #{winnerUserId}, #{moveCount}, #{lastMoveAt},
+         #{restUntil}, #{readyUserIds}, #{stateJson}, #{stateVersion}, #{startedAt}, #{endsAt},
+         #{finishedAt})
+  </insert>
+
+  <insert id="insertMove">
+    INSERT INTO game_move
+        (round_id, move_no, user_id, x, y, action, from_x, from_y,
+         piece_type, piece_color, captured_piece_type, captured_piece_color, created_at)
+    VALUES
+        (#{roundId}, #{moveNo}, #{userId}, #{x}, #{y}, #{action}, #{fromX}, #{fromY},
+         #{pieceType}, #{pieceColor}, #{capturedPieceType}, #{capturedPieceColor}, #{createdAt})
+  </insert>
+
+  <select id="selectByStage" resultType="com.fishmatrix.game.entity.GameMatchEntity">
+    SELECT * FROM game_match
+     WHERE tournament_id = #{tournamentId} AND stage = #{stage}
+     ORDER BY round_no ASC, slot_no ASC
+  </select>
+
+  <select id="selectActiveByUser" resultType="com.fishmatrix.game.entity.GameMatchEntity">
+    SELECT * FROM game_match
+     WHERE status IN ('READY', 'RUNNING', 'REST')
+       AND (player1_user_id = #{userId} OR player2_user_id = #{userId})
+     ORDER BY created_at DESC
+  </select>
+
+  <update id="activateRound">
+    UPDATE game_match
+       SET status = 'READY'
+     WHERE tournament_id = #{tournamentId} AND stage = #{stage} AND round_no = #{roundNo}
+       AND status = 'PENDING'
+  </update>
+
+  <select id="countRoundMatches" resultType="int">
+    SELECT COUNT(*) FROM game_match
+     WHERE tournament_id = #{tournamentId} AND stage = #{stage} AND round_no = #{roundNo}
+  </select>
+
+  <select id="countRoundFinished" resultType="int">
+    SELECT COUNT(*) FROM game_match
+     WHERE tournament_id = #{tournamentId} AND stage = #{stage} AND round_no = #{roundNo}
+       AND status IN ('FINISHED', 'BYE')
+  </select>
+
+  <select id="countLeagueMatches" resultType="int">
+    SELECT COUNT(*) FROM game_match
+     WHERE tournament_id = #{tournamentId} AND stage = 'LEAGUE'
+  </select>
+
+  <select id="countLeagueFinished" resultType="int">
+    SELECT COUNT(*) FROM game_match
+     WHERE tournament_id = #{tournamentId} AND stage = 'LEAGUE'
+       AND status IN ('FINISHED', 'BYE')
+  </select>
+
+  <select id="selectDueRest" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round
+     WHERE status = 'REST' AND rest_until &lt;= #{now}
+     ORDER BY rest_until ASC
+  </select>
+
+  <select id="selectRunningRounds" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round
+     WHERE status = 'RUNNING' AND turn_user_id IS NOT NULL
+     ORDER BY last_move_at ASC
+  </select>
+
+  <update id="updateStatus">
+    UPDATE game_match SET status = #{status} WHERE id = #{matchId}
+  </update>
+
+  <!-- 首局剧本只允许在开赛前修改；条件更新防止比赛开始后被覆盖。 -->
+  <update id="updateFirstGame">
+    UPDATE game_match
+       SET first_game_id = #{gameId}
+     WHERE id = #{matchId} AND status IN ('PENDING', 'READY')
+  </update>
+
+  <!-- 服务端补抽首局剧本：仅当尚未设置时写入，避免覆盖选手已选结果。 -->
+  <update id="initFirstGame">
+    UPDATE game_match
+       SET first_game_id = COALESCE(first_game_id, #{gameId}),
+           game_chooser_user_id = COALESCE(game_chooser_user_id, #{chooserUserId})
+     WHERE id = #{matchId} AND status IN ('PENDING', 'READY')
+  </update>
+
+  <update id="start">
+    UPDATE game_match SET status = 'RUNNING', started_at = #{now}
+     WHERE id = #{matchId} AND status IN ('READY', 'REST')
+  </update>
+
+  <update id="finish">
+    UPDATE game_match
+       SET status = 'FINISHED', winner_user_id = #{winnerUserId}, player1_score = #{player1Score},
+           player2_score = #{player2Score}, finished_at = #{now}
+     WHERE id = #{matchId}
+  </update>
+
+  <!-- 条件结束比赛：只有 RUNNING 才能被结算，避免超时/认输并发重复加分。 -->
+  <update id="finishIfRunning">
+    UPDATE game_match
+       SET status = 'FINISHED', winner_user_id = #{winnerUserId}, player1_score = #{player1Score},
+           player2_score = #{player2Score}, finished_at = #{now}
+     WHERE id = #{matchId} AND status = 'RUNNING'
+  </update>
+
+  <!-- 未开赛或进行中的比赛都可因认输结束。 -->
+  <update id="finishActive">
+    UPDATE game_match
+       SET status = 'FINISHED', winner_user_id = #{winnerUserId}, player1_score = #{player1Score},
+           player2_score = #{player2Score}, finished_at = #{now}
+     WHERE id = #{matchId} AND status IN ('READY', 'RUNNING')
+  </update>
+
+  <update id="finishRoundIfRunning">
+    UPDATE game_round
+       SET status = 'FINISHED', winner_user_id = #{winnerUserId}, rest_until = NULL,
+           finished_at = #{now}
+     WHERE id = #{roundId} AND status = 'RUNNING'
+  </update>
+
+  <update id="restAfterGame">
+    UPDATE game_round
+       SET status = 'REST', winner_user_id = #{winnerUserId}, rest_until = #{restUntil}
+     WHERE id = #{roundId} AND status = 'RUNNING'
+  </update>
+
+  <update id="updateScore">
+    UPDATE game_match SET player1_score = #{player1Score}, player2_score = #{player2Score}
+     WHERE id = #{matchId}
+  </update>
+
+  <!-- 把上一轮胜者填入下一轮比赛的 player1 / player2 位置。 -->
+  <update id="fillNextSlot">
+    <choose>
+      <when test="slot1">
+        UPDATE game_match
+           SET player1_user_id = #{userId}, player1_nickname = #{nickname}
+         WHERE id = #{nextMatchId}
+      </when>
+      <otherwise>
+        UPDATE game_match
+           SET player2_user_id = #{userId}, player2_nickname = #{nickname}
+         WHERE id = #{nextMatchId}
+      </otherwise>
+    </choose>
+  </update>
+
+  <!-- 竞技场每秒保存一次权威状态；只允许 RUNNING 小局写入。 -->
+  <update id="updateArenaState">
+    UPDATE game_round
+       SET state_json = #{stateJson}, state_version = #{stateVersion},
+           move_count = GREATEST(move_count, #{actionCount})
+     WHERE id = #{roundId} AND status = 'RUNNING'
+  </update>
+
+  <select id="selectRunningArenaRounds" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round
+     WHERE status = 'RUNNING' AND game_id &lt;&gt; #{gomokuGameId}
+     ORDER BY started_at ASC
+  </select>
+
+  <select id="selectRound" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round WHERE id = #{roundId}
+  </select>
+
+  <select id="selectLatestRound" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round
+     WHERE match_id = #{matchId}
+     ORDER BY game_no DESC
+     LIMIT 1
+  </select>
+
+  <select id="selectRounds" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round WHERE match_id = #{matchId} ORDER BY game_no ASC
+  </select>
+
+  <select id="selectRoundsByStatus" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round WHERE status = #{status} ORDER BY started_at ASC
+  </select>
+
+  <select id="selectMoves" resultType="com.fishmatrix.game.entity.GameMoveEntity">
+    SELECT move_no, user_id, x, y, action, from_x, from_y,
+           piece_type, piece_color, captured_piece_type, captured_piece_color
+      FROM game_move
+     WHERE round_id = #{roundId} ORDER BY move_no ASC
+  </select>
+
+  <!-- 乐观更新：只有 move_count 与预期一致时才切换回合，避免并发落子覆盖。 -->
+  <update id="updateTurnAndCount">
+    UPDATE game_round
+       SET turn_user_id = #{nextTurnUserId}, move_count = #{nextCount}, last_move_at = #{now}
+     WHERE id = #{roundId} AND move_count = #{expectedCount} AND status = 'RUNNING'
+  </update>
+
+  <update id="updateRoundStatus">
+    UPDATE game_round
+       SET status = #{status}, winner_user_id = #{winnerUserId},
+           rest_until = #{restUntil}, finished_at = #{finishedAt}
+     WHERE id = #{roundId}
+  </update>
+
+  <update id="updateReadyUserIds">
+    UPDATE game_round SET ready_user_ids = #{readyUserIds} WHERE id = #{roundId}
+  </update>
+
+  <!-- 条件更新：休息中的小局只允许被一个调用方推进到下一局。 -->
+  <update id="finishRestRound">
+    UPDATE game_round
+       SET status = 'FINISHED', rest_until = NULL, finished_at = #{now}
+     WHERE id = #{roundId} AND status = 'REST'
+  </update>
+
+  <!--
+    比赛记录列表：只取赛事类记录（约战不进记录列表），排除已删除赛事。
+    管理台传 includeHidden = true 才能看到被隐藏的行。
+  -->
+  <select id="selectRecordMatches" resultType="com.fishmatrix.game.entity.GameMatchEntity">
+    SELECT m.id, m.tournament_id, m.round_no, m.slot_no, m.stage, m.status,
+           m.player1_user_id, m.player1_nickname, m.player2_user_id, m.player2_nickname,
+           m.player1_score, m.player2_score, m.winner_user_id, m.next_match_id,
+           m.first_game_id, m.game_chooser_user_id, m.visible, m.display_order,
+           m.managed_by, m.managed_at, m.created_at, m.started_at, m.finished_at
+      FROM game_match m
+      JOIN game_tournament t ON t.id = m.tournament_id
+     WHERE t.deleted_at IS NULL
+       AND t.kind = 'TOURNAMENT'
+     <if test="!includeHidden">
+       AND m.visible = 1
+     </if>
+     ORDER BY m.display_order DESC, m.created_at DESC
+     LIMIT #{limit}
+  </select>
+
+  <update id="updateRecordManaged">
+    UPDATE game_match
+    <set>
+      <if test="visible != null">visible = #{visible},</if>
+      <if test="displayOrder != null">display_order = #{displayOrder},</if>
+      managed_by = #{managedBy},
+      managed_at = #{now}
+    </set>
+     WHERE id = #{matchId}
+  </update>
+
+</mapper>

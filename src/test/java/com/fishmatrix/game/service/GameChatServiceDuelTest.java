@@ -5,15 +5,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.mapper.GameChatMessageMapper;
+import com.fishmatrix.game.mapper.MatchMapper;
+import com.fishmatrix.game.mapper.TournamentMapper;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.ChatRepository;
-import com.fishmatrix.game.store.MatchRepository;
-import com.fishmatrix.game.store.TournamentRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,12 +23,13 @@ class GameChatServiceDuelTest {
 
     @BeforeEach
     void setUp() {
-        TournamentRepository tournaments = mock(TournamentRepository.class);
-        when(tournaments.findById("d1")).thenReturn(Optional.of(duel()));
+        TournamentMapper tournaments = mock(TournamentMapper.class);
+        when(tournaments.selectActiveById("d1"))
+                .thenReturn(TournamentConverters.toEntity(duel()));
         chats = new GameChatService(
-                mock(ChatRepository.class),
+                mock(GameChatMessageMapper.class),
                 tournaments,
-                mock(MatchRepository.class),
+                mock(MatchMapper.class),
                 mock(GameSessionRegistry.class),
                 new GameProperties(2, 16, 300, 60, 30, 60, 60, 600, 1000, "*"));
     }

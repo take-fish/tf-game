@@ -1,14 +1,17 @@
 package com.fishmatrix.game.service;
 
 import com.fishmatrix.game.config.GameProperties;
+import com.fishmatrix.game.converter.NotificationConverters;
+import com.fishmatrix.game.converter.SqlTime;
+import com.fishmatrix.game.mapper.GameNotificationMapper;
 import com.fishmatrix.game.model.MatchRecord;
 import com.fishmatrix.game.model.NotificationView;
 import com.fishmatrix.game.model.TournamentRecord;
-import com.fishmatrix.game.store.NotificationRepository;
 import com.fishmatrix.game.ws.GameSessionRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,30 +20,22 @@ import org.springframework.stereotype.Service;
  * - CHAMPION：赛事结束后的顶部横幅。
  * 通知同时落库（轮询兜底）并通过 WebSocket 广播。
  */
+@RequiredArgsConstructor
 @Service
 public class GameNotificationService {
 
     public static final String TYPE_FINAL_START = "FINAL_START";
     public static final String TYPE_CHAMPION = "CHAMPION";
 
-    private final NotificationRepository repository;
+    private final GameNotificationMapper notifications;
     private final GameSessionRegistry registry;
     private final GameProperties properties;
-
-    public GameNotificationService(
-            NotificationRepository repository,
-            GameSessionRegistry registry,
-            GameProperties properties) {
-        this.repository = repository;
-        this.registry = registry;
-        this.properties = properties;
-    }
 
     public void publishFinalStart(TournamentRecord tournament, MatchRecord match) {
         if (match == null || match.player1UserId() == null || match.player2UserId() == null) {
             return;
         }
-        if (repository.exists(TYPE_FINAL_START, tournament.id(), match.id())) {
+        if (notifications.exists(TYPE_FINAL_START, tournament.id(), match.id())) {
             return;
         }
         String name = tournamentName(tournament);
@@ -56,7 +51,7 @@ public class GameNotificationService {
         if (tournament.championUserId() == null) {
             return;
         }
-        if (repository.exists(TYPE_CHAMPION, tournament.id(), null)) {
+        if (notifications.exists(TYPE_CHAMPION, tournament.id(), null)) {
             return;
         }
         String nickname = tournament.championNickname() == null
@@ -71,10 +66,13 @@ public class GameNotificationService {
 
     public List<NotificationView> recent(long after, int limit) {
         long now = System.currentTimeMillis();
+        int safeLimit = Math.min(50, Math.max(1, limit));
         if (after <= 0) {
-            return repository.latest(now, limit);
+            return NotificationConverters.views(
+                    notifications.selectLatest(SqlTime.toDateTime(now), safeLimit));
         }
-        return repository.recent(after, now, limit);
+        return NotificationConverters.views(notifications.selectRecent(
+                SqlTime.toDateTime(after), SqlTime.toDateTime(now), safeLimit));
     }
 
     /** 播报名称取创建赛事时填写的名称；历史数据缺失时才回退到默认名称。 */
@@ -92,7 +90,7 @@ public class GameNotificationService {
     }
 
     private void saveAndBroadcast(NotificationView notification) {
-        repository.insert(notification);
+        notifications.insert(NotificationConverters.toEntity(notification));
         registry.broadcastAll(Map.of(
                 "type", "notification",
                 "notification", notification));
