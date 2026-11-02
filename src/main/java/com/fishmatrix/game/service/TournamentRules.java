@@ -116,6 +116,23 @@ final class TournamentRules {
                 ? ArenaGames.randomGame(enabledPool(tournament)) : tournament.gameId();
     }
 
+    /**
+     * 同一轮内不同对阵尽量分到不同剧本：按场次在启用池里轮转，避免整轮同款。
+     * 固定剧本赛事仍返回同一剧本。
+     */
+    static String resolveRoundGame(TournamentRecord tournament, MatchRecord match) {
+        if (!ArenaGames.isRandom(tournament.gameId())) {
+            return tournament.gameId();
+        }
+        List<String> pool = enabledPool(tournament);
+        if (pool.isEmpty()) {
+            return ArenaGames.randomGame();
+        }
+        int slot = Math.max(0, match.slotNo() - 1);
+        int offset = Math.floorMod(slot + pool.size() + Math.floorMod(match.roundNo(), pool.size()), pool.size());
+        return pool.get(offset);
+    }
+
     /** 历史 S赛没有 game_pool 字段，回退为全部 1v1 剧本。 */
     static List<String> enabledPool(TournamentRecord tournament) {
         List<String> pool = tournament.gamePool();
