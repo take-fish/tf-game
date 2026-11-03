@@ -461,7 +461,7 @@ class TournamentBracketService {
         if (match.firstGameId() != null || BracketPlanner.STATUS_BYE.equals(match.status())) {
             return;
         }
-        matches.initFirstGame(match.id(), TournamentRules.resolveGame(tournament),
+        matches.initFirstGame(match.id(), TournamentRules.resolveRoundGame(tournament, match),
                 match.gameChooserUserId());
     }
 
