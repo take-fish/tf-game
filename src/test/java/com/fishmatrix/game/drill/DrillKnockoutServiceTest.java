@@ -145,6 +145,10 @@ class DrillKnockoutServiceTest {
         assertTrue(chats.stream()
                 .map(entry -> String.valueOf(asMap(entry).get("text")))
                 .anyMatch(text -> text.contains("淘汰赛开赛")));
+        assertTrue(chats.stream()
+                .map(entry -> String.valueOf(asMap(entry).get("text")))
+                .anyMatch(text -> text.contains("第 1 局备战 35s")
+                        && text.contains("等级/装备/配额已保留")));
 
         // 同一房间重复开赛返回同一届
         assertEquals(bracketId, knockout.start(player(2), roomId).get("id"));
@@ -161,6 +165,10 @@ class DrillKnockoutServiceTest {
         view = knockout.state(player(1), bracketId);
         assertEquals(1, match(view, q1).get("winsA"));
         assertEquals(2, match(view, q1).get("game"));
+        List<?> chats = (List<?>) rooms.state(player(1), roomId).get("chats");
+        assertTrue(chats.stream()
+                .map(entry -> String.valueOf(asMap(entry).get("text")))
+                .anyMatch(text -> text.contains("第 2 局备战 25s")));
 
         playGame(knockout, bracketId, q1, player(1), player(8), 2);
         view = knockout.state(player(1), bracketId);
