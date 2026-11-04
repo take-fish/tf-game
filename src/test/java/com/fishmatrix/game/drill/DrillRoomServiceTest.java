@@ -109,4 +109,28 @@ class DrillRoomServiceTest {
         assertEquals(4, rewards.get("u1").get("items"));
         assertEquals(30, rewards.get("u1").get("quota"));
     }
+
+    @Test
+    void 直接开始必须双方都点击才生效() {
+        String roomId = (String) service.create(player(1), "TOURNAMENT", "TOURNAMENT").get("id");
+        service.join(player(2), roomId);
+        service.ready(player(1), roomId);
+        service.ready(player(2), roomId);
+
+        Map<String, Object> first = service.requestSkip(player(1), roomId);
+        assertEquals(false, first.get("skipGranted"));
+
+        Map<String, Object> second = service.requestSkip(player(2), roomId);
+        assertEquals(true, second.get("skipGranted"));
+    }
+
+    @Test
+    void 房间聊天保留最近消息() {
+        String roomId = (String) service.create(player(1), "TOURNAMENT", "TOURNAMENT").get("id");
+        Map<String, Object> view = service.chat(player(1), roomId, "  开始吧  ");
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> chats = (java.util.List<Map<String, Object>>) view.get("chats");
+        assertEquals(1, chats.size());
+        assertEquals("开始吧", chats.get(0).get("text"));
+    }
 }

@@ -5,6 +5,8 @@ import com.fishmatrix.game.model.GameIdentity;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -83,6 +85,11 @@ public class DrillRoomService {
         public final List<String> eliminationOrder = new ArrayList<>();
         /** 锦标赛最终名次（userId → 名次）与奖励。 */
         public final Map<String, Integer> placement = new LinkedHashMap<>();
+        /** 备战窗口「直接开始」投票：全员都点才生效。 */
+        public final Set<String> skipVotes = new LinkedHashSet<>();
+        public boolean skipGranted;
+        /** 临时聊天，最多保留最近 50 条。 */
+        public final java.util.List<Map<String, Object>> chats = new java.util.ArrayList<>();
         public final Map<String, Map<String, Integer>> rewards = new LinkedHashMap<>();
         public String status = STATUS_WAITING;
         public int round;
@@ -205,6 +212,50 @@ public class DrillRoomService {
         recordCarousel(room, player.userId, carouselId);
         room.updatedAt = System.currentTimeMillis();
         advanceIfAllReported(room);
+        return view(room);
+    }
+
+    /**
+     * 备战窗口「直接开始」：一方点击只记录，**必须双方都点击才生效**；
+     * 未全员点击时 skipGranted 保持 false，客户端可展示「等待对方确认」。
+     */
+    public Map<String, Object> requestSkip(GameIdentity identity, String roomId) {
+        Room room = require(roomId);
+        requirePlayer(room, identity.userId());
+        if (STATUS_FINISHED.equals(room.status)) {
+            throw GameException.badRequest("DRILL_ROOM_CLOSED", "房间已结束");
+        }
+        if (!room.skipGranted) {
+            room.skipVotes.add(identity.userId());
+            if (!room.players.isEmpty() && room.skipVotes.size() >= room.players.size()) {
+                room.skipGranted = true;
+            }
+        }
+        room.updatedAt = System.currentTimeMillis();
+        return view(room);
+    }
+
+    /** 房间内临时聊天：固定小窗，只保留最近 50 条。 */
+    public Map<String, Object> chat(GameIdentity identity, String roomId, String text) {
+        Room room = require(roomId);
+        Player player = requirePlayer(room, identity.userId());
+        String clean = text == null ? "" : text.trim();
+        if (clean.isEmpty()) {
+            return view(room);
+        }
+        if (clean.length() > 200) {
+            clean = clean.substring(0, 200);
+        }
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("userId", player.userId);
+        message.put("nickname", player.nickname);
+        message.put("text", clean);
+        message.put("at", System.currentTimeMillis());
+        room.chats.add(message);
+        while (room.chats.size() > 50) {
+            room.chats.remove(0);
+        }
+        room.updatedAt = System.currentTimeMillis();
         return view(room);
     }
 
@@ -334,6 +385,9 @@ public class DrillRoomService {
         view.put("carouselWins", Map.copyOf(room.carouselWins));
         view.put("placement", List.copyOf(room.eliminationOrder));
         view.put("placements", Map.copyOf(room.placement));
+        view.put("skipVotes", List.copyOf(room.skipVotes));
+        view.put("skipGranted", room.skipGranted);
+        view.put("chats", List.copyOf(room.chats));
         view.put("rewards", Map.copyOf(room.rewards));
         return view;
     }
