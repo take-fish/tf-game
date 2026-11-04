@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DrillController {
 
     private final DrillRoomService rooms;
+    private final DrillKnockoutService knockout;
 
     public record CreateRoomRequest(String source, String mode) {
     }
@@ -31,6 +32,10 @@ public class DrillController {
     }
 
     public record ReportRequest(Integer round, Integer hp, String result, String carouselId) {
+    }
+
+    public record KnockoutReportRequest(
+            Integer game, Integer wins, Integer losses, Integer draws, Integer sli, Integer survivors) {
     }
 
     @PostMapping("/rooms")
@@ -72,6 +77,42 @@ public class DrillController {
                 request == null || request.hp() == null ? 0 : request.hp(),
                 request == null ? null : request.result(),
                 request == null ? null : request.carouselId());
+    }
+
+    /** 排位赛结束后开淘汰赛（八强 BO3 / 四强 BO5 / 决赛 BO5）。 */
+    @PostMapping("/rooms/{roomId}/knockout")
+    public Map<String, Object> startKnockout(@PathVariable String roomId) {
+        return knockout.start(identity(), roomId);
+    }
+
+    @GetMapping("/rooms/{roomId}/knockout")
+    public Map<String, Object> latestKnockout(@PathVariable String roomId) {
+        return knockout.latest(identity(), roomId);
+    }
+
+    @GetMapping("/knockout/{bracketId}")
+    public Map<String, Object> knockoutState(@PathVariable String bracketId) {
+        return knockout.state(identity(), bracketId);
+    }
+
+    @PostMapping("/knockout/{bracketId}/matches/{matchId}/report")
+    public Map<String, Object> knockoutReport(
+            @PathVariable String bracketId,
+            @PathVariable String matchId,
+            @RequestBody KnockoutReportRequest request) {
+        return knockout.report(
+                identity(),
+                bracketId,
+                matchId,
+                request == null
+                        ? null
+                        : new DrillKnockoutService.GameReport(
+                                request.game() == null ? -1 : request.game(),
+                                request.wins() == null ? 0 : request.wins(),
+                                request.losses() == null ? 0 : request.losses(),
+                                request.draws() == null ? 0 : request.draws(),
+                                request.sli() == null ? 0 : request.sli(),
+                                request.survivors() == null ? 0 : request.survivors()));
     }
 
     private static GameIdentity identity() {
