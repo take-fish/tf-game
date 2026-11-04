@@ -70,6 +70,7 @@ public class DrillController {
                 roomId,
                 request == null || request.round() == null ? -1 : request.round(),
                 request == null || request.hp() == null ? 0 : request.hp(),
+                request == null ? null : request.result(),
                 request == null ? null : request.carouselId());
     }
 
