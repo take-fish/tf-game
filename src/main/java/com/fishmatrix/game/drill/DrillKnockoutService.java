@@ -85,7 +85,7 @@ public class DrillKnockoutService {
         }
     }
 
-    public Map<String, Object> start(GameIdentity identity, String roomId) {
+    public synchronized Map<String, Object> start(GameIdentity identity, String roomId) {
         if (!rooms.isMember(roomId, identity.userId())) {
             throw GameException.badRequest("DRILL_ROOM_NOT_MEMBER", "不在该房间中");
         }
@@ -130,7 +130,7 @@ public class DrillKnockoutService {
         return view(bracket);
     }
 
-    public Map<String, Object> latest(GameIdentity identity, String roomId) {
+    public synchronized Map<String, Object> latest(GameIdentity identity, String roomId) {
         if (!rooms.isMember(roomId, identity.userId())) {
             throw GameException.badRequest("DRILL_ROOM_NOT_MEMBER", "不在该房间中");
         }
@@ -141,13 +141,13 @@ public class DrillKnockoutService {
         return view(brackets.get(bracketId));
     }
 
-    public Map<String, Object> state(GameIdentity identity, String bracketId) {
+    public synchronized Map<String, Object> state(GameIdentity identity, String bracketId) {
         Bracket bracket = requireBracket(bracketId);
         requireParticipant(bracket, identity.userId());
         return view(bracket);
     }
 
-    public Map<String, Object> report(
+    public synchronized Map<String, Object> report(
             GameIdentity identity, String bracketId, String matchId, GameReport report) {
         Bracket bracket = requireBracket(bracketId);
         Match match = requireMatch(bracket, matchId);
