@@ -64,8 +64,8 @@ class DrillKnockoutServiceTest {
     private static void playGame(
             DrillKnockoutService knockout, String bracketId, String matchId, GameIdentity winner,
             GameIdentity loser, int game) {
-        knockout.report(winner, bracketId, matchId, new DrillKnockoutService.GameReport(game, 9, 1, 0, 100, 8));
-        knockout.report(loser, bracketId, matchId, new DrillKnockoutService.GameReport(game, 3, 7, 0, 40, 2));
+        knockout.report(winner, bracketId, matchId, new DrillKnockoutService.GameReport(game, 1, 0, 0, 100, 8));
+        knockout.report(loser, bracketId, matchId, new DrillKnockoutService.GameReport(game, 0, 1, 0, 40, 2));
     }
 
     private static void playMatch(
@@ -82,7 +82,7 @@ class DrillKnockoutServiceTest {
             int wins) {
         for (int game = 1; game <= wins; game += 1) {
             knockout.report(human, bracketId, matchId,
-                    new DrillKnockoutService.GameReport(game, 9, 1, 0, 100, 8));
+                    new DrillKnockoutService.GameReport(game, 1, 0, 0, 100, 8));
         }
     }
 
@@ -230,9 +230,9 @@ class DrillKnockoutServiceTest {
         String q1 = (String) asMap(quarter.get(0)).get("id");
 
         assertThrows(GameException.class, () -> knockout.report(
-                player(9), bracketId, q1, new DrillKnockoutService.GameReport(1, 9, 1, 0, 100, 8)));
+                player(9), bracketId, q1, new DrillKnockoutService.GameReport(1, 1, 0, 0, 100, 8)));
         assertThrows(GameException.class, () -> knockout.report(
-                player(1), bracketId, q1, new DrillKnockoutService.GameReport(2, 9, 1, 0, 100, 8)));
+                player(1), bracketId, q1, new DrillKnockoutService.GameReport(2, 1, 0, 0, 100, 8)));
         assertNotNull(match(knockout.state(player(1), bracketId), q1));
     }
 
