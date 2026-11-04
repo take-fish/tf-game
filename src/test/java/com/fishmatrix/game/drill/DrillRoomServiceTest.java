@@ -133,4 +133,55 @@ class DrillRoomServiceTest {
         assertEquals(1, chats.size());
         assertEquals("开始吧", chats.get(0).get("text"));
     }
+
+    @Test
+    void 锦标赛统一上报按结果记战绩并推进轮次() {
+        String roomId = (String) service.create(player(1), "TOURNAMENT", "TOURNAMENT").get("id");
+        service.join(player(2), roomId);
+        service.ready(player(1), roomId);
+        service.ready(player(2), roomId);
+
+        service.report(player(1), roomId, 1, 100, "WIN", null);
+        Map<String, Object> view = service.report(player(2), roomId, 1, 100, "LOSS", null);
+
+        assertEquals(2, view.get("round"));
+        Map<String, Object> first = asMap(((List<?>) view.get("players")).get(0));
+        assertEquals("u1", first.get("userId"));
+        assertEquals(1, first.get("wins"));
+    }
+
+    @Test
+    void 备战倒计时与全员直接开始() {
+        String roomId = (String) service.create(player(1), "CASUAL").get("id");
+        service.join(player(2), roomId);
+        service.ready(player(1), roomId);
+        Map<String, Object> running = service.ready(player(2), roomId);
+
+        assertEquals("PREP", running.get("phase"));
+        assertTrue(((Number) running.get("prepEndsAt")).longValue() > 0);
+
+        Map<String, Object> first = service.requestSkip(player(1), roomId);
+        assertEquals(false, first.get("skipGranted"));
+        Map<String, Object> second = service.requestSkip(player(2), roomId);
+        assertEquals(true, second.get("skipGranted"));
+        assertEquals("BATTLE", second.get("phase"));
+    }
+
+    @Test
+    void 进入下一轮重置直接开始投票() {
+        String roomId = (String) service.create(player(1), "CASUAL").get("id");
+        service.join(player(2), roomId);
+        service.ready(player(1), roomId);
+        service.ready(player(2), roomId);
+        service.requestSkip(player(1), roomId);
+        service.requestSkip(player(2), roomId);
+
+        service.report(player(1), roomId, 1, 90, null);
+        Map<String, Object> next = service.report(player(2), roomId, 1, 90, null);
+
+        assertEquals(2, next.get("round"));
+        assertEquals("PREP", next.get("phase"));
+        assertEquals(false, next.get("skipGranted"));
+        assertTrue(((List<?>) next.get("skipVotes")).isEmpty());
+    }
 }
