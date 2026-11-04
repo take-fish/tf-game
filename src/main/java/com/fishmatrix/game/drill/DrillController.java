@@ -24,15 +24,15 @@ public class DrillController {
 
     private final DrillRoomService rooms;
 
-    public record CreateRoomRequest(String source) {
+    public record CreateRoomRequest(String source, String mode) {
     }
 
-    public record ReportRequest(Integer round, Integer hp, String carouselId) {
+    public record ReportRequest(Integer round, Integer hp, String result, String carouselId) {
     }
 
     @PostMapping("/rooms")
     public Map<String, Object> create(@RequestBody(required = false) CreateRoomRequest request) {
-        return rooms.create(identity(), request == null ? null : request.source());
+        return rooms.create(identity(), request == null ? null : request.source(), request == null ? null : request.mode());
     }
 
     @GetMapping("/rooms/{roomId}")
