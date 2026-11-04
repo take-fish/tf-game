@@ -26,7 +26,8 @@ public class DrillKnockoutService {
 
     public static final int PREP_SECONDS = 35;
     public static final int GAME_PREP_SECONDS = 25;
-    public static final int KNOCKOUT_ROUNDS = 10;
+    /** 淘汰赛一局 = 一轮战斗。 */
+    public static final int KNOCKOUT_ROUNDS = 1;
 
     private final DrillRoomService rooms;
     private final Map<String, Bracket> brackets = new ConcurrentHashMap<>();
@@ -173,12 +174,12 @@ public class DrillKnockoutService {
         } else {
             throw GameException.badRequest("DRILL_KNOCKOUT_NOT_PLAYER", "不在该场对局中");
         }
-        // 对手是机器人教练：按本局 seed 生成一份稳定的战绩，立即结算
+        // 对手是机器人教练：按真人这一局的结果镜像一份战绩，立即结算
         if (isBot(match.playerA) && match.reportA == null) {
-            match.reportA = botReport(match);
+            match.reportA = botReport(match, match.reportB);
         }
         if (isBot(match.playerB) && match.reportB == null) {
-            match.reportB = botReport(match);
+            match.reportB = botReport(match, match.reportA);
         }
         if (match.reportA != null && match.reportB != null) {
             settleGame(bracket, match);
@@ -296,14 +297,24 @@ public class DrillKnockoutService {
         startGame(bracket, match, PREP_SECONDS);
     }
 
-    /** 用本局 seed 生成稳定的机器人战绩（10 轮）。 */
-    private static GameReport botReport(Match match) {
+    /** 一局一轮战斗：机器人按真人这一局的结果镜像，真人胜则机器人负，反之亦然。 */
+    private static GameReport botReport(Match match, GameReport opponent) {
+        int wins = 0;
+        int losses = 0;
+        int draws = 0;
+        if (opponent == null) {
+            losses = 1;
+        } else if (opponent.wins() > opponent.losses()) {
+            losses = 1;
+        } else if (opponent.losses() > opponent.wins()) {
+            wins = 1;
+        } else {
+            draws = 1;
+        }
         java.util.Random random = new java.util.Random(match.seed + match.game * 131L);
-        int wins = 3 + random.nextInt(6);
-        int losses = KNOCKOUT_ROUNDS - wins;
         int sli = 40 + random.nextInt(61);
         int survivors = random.nextInt(9);
-        return new GameReport(match.game, wins, losses, 0, sli, survivors);
+        return new GameReport(match.game, wins, losses, draws, sli, survivors);
     }
 
     private void startGame(Bracket bracket, Match match, int prepSeconds) {
