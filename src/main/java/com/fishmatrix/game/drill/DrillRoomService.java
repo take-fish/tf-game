@@ -385,8 +385,12 @@ public class DrillRoomService {
     }
 
     private void requireReportable(Room room, int round) {
+        syncPhase(room);
         if (!STATUS_RUNNING.equals(room.status)) {
             throw GameException.badRequest("DRILL_ROOM_NOT_RUNNING", "房间未开始");
+        }
+        if (!PHASE_BATTLE.equals(room.phase)) {
+            throw GameException.badRequest("DRILL_ROOM_PREP", "备战尚未结束");
         }
         if (round != room.round) {
             throw GameException.badRequest("DRILL_ROOM_ROUND_MISMATCH", "轮次不一致，请等待同步");

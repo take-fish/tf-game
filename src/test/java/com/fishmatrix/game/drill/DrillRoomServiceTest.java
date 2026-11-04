@@ -23,6 +23,13 @@ class DrillRoomServiceTest {
         return (Map<String, Object>) value;
     }
 
+    /** 全员点「直接开始」，跳过备战倒计时后进入本轮。 */
+    private void agreeStart(String roomId, int players) {
+        for (int index = 1; index <= players; index += 1) {
+            service.requestSkip(player(index), roomId);
+        }
+    }
+
     @Test
     void 两人就绪后开局并同步轮次() {
         Map<String, Object> created = service.create(player(1), "CASUAL");
@@ -44,6 +51,7 @@ class DrillRoomServiceTest {
         service.join(player(2), roomId);
         service.ready(player(1), roomId);
         service.ready(player(2), roomId);
+        agreeStart(roomId, 2);
 
         service.report(player(1), roomId, 1, 80, null);
         Map<String, Object> finished = service.report(player(2), roomId, 1, 0, null);
@@ -61,6 +69,7 @@ class DrillRoomServiceTest {
         service.join(player(2), roomId);
         service.ready(player(1), roomId);
         service.ready(player(2), roomId);
+        agreeStart(roomId, 2);
 
         service.report(player(1), roomId, 1, 90, "@Async");
         Map<String, Object> view = service.report(player(2), roomId, 1, 90, "@Async");
@@ -74,6 +83,7 @@ class DrillRoomServiceTest {
         service.join(player(2), roomId);
         service.ready(player(1), roomId);
         service.ready(player(2), roomId);
+        agreeStart(roomId, 2);
         assertThrows(GameException.class, () -> service.report(player(1), roomId, 3, 50, null));
     }
 
@@ -92,6 +102,7 @@ class DrillRoomServiceTest {
         }
 
         for (int round = 1; round <= 15; round += 1) {
+            agreeStart(roomId, 8);
             for (int index = 1; index <= 8; index += 1) {
                 String result = index == 1 || index % 2 == 0 ? "WIN" : "LOSS";
                 service.reportTournament(player(index), roomId, round, result, null);
@@ -140,6 +151,7 @@ class DrillRoomServiceTest {
         service.join(player(2), roomId);
         service.ready(player(1), roomId);
         service.ready(player(2), roomId);
+        agreeStart(roomId, 2);
 
         service.report(player(1), roomId, 1, 100, "WIN", null);
         Map<String, Object> view = service.report(player(2), roomId, 1, 100, "LOSS", null);
@@ -165,6 +177,16 @@ class DrillRoomServiceTest {
         Map<String, Object> second = service.requestSkip(player(2), roomId);
         assertEquals(true, second.get("skipGranted"));
         assertEquals("BATTLE", second.get("phase"));
+    }
+
+    @Test
+    void 备战未结束时拒绝报到() {
+        String roomId = (String) service.create(player(1), "CASUAL").get("id");
+        service.join(player(2), roomId);
+        service.ready(player(1), roomId);
+        service.ready(player(2), roomId);
+
+        assertThrows(GameException.class, () -> service.report(player(1), roomId, 1, 90, null));
     }
 
     @Test
