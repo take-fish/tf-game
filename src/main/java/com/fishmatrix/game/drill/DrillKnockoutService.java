@@ -35,6 +35,9 @@ public class DrillKnockoutService {
     public record GameReport(int game, int wins, int losses, int draws, int sli, int survivors) {
     }
 
+    private record Seed(String id, String name) {
+    }
+
     static final class Match {
         final String id;
         final int round;
@@ -91,24 +94,33 @@ public class DrillKnockoutService {
             return view(brackets.get(existing));
         }
         List<DrillRoomService.RankedPlayer> ranking = rooms.ranking(roomId);
-        if (ranking.size() < 8) {
+        if (ranking.size() < 2) {
             throw GameException.badRequest(
-                    "DRILL_KNOCKOUT_NEEDS_EIGHT", "淘汰赛需要 8 名选手，当前 " + ranking.size() + " 名");
+                    "DRILL_KNOCKOUT_NEEDS_TWO", "淘汰赛至少需要 2 名选手，当前 " + ranking.size() + " 名");
+        }
+        List<Seed> seeds = new ArrayList<>();
+        for (DrillRoomService.RankedPlayer ranked : ranking) {
+            seeds.add(new Seed(ranked.userId(), ranked.nickname()));
+        }
+        int botCount = 8 - seeds.size();
+        for (int index = 1; index <= botCount; index += 1) {
+            seeds.add(new Seed("bot-" + index, "机器人教练 " + index));
         }
         Bracket bracket = new Bracket(UUID.randomUUID().toString().substring(0, 8), roomId);
         int[][] pairs = {{0, 7}, {3, 4}, {2, 5}, {1, 6}};
         List<Match> quarter = bracket.rounds.get(0);
         for (int slot = 0; slot < pairs.length; slot += 1) {
-            DrillRoomService.RankedPlayer first = ranking.get(pairs[slot][0]);
-            DrillRoomService.RankedPlayer second = ranking.get(pairs[slot][1]);
+            Seed first = seeds.get(pairs[slot][0]);
+            Seed second = seeds.get(pairs[slot][1]);
             Match match = new Match(bracket.id + "-q" + (slot + 1), 0, slot, 3);
-            match.playerA = first.userId();
-            match.nicknameA = first.nickname();
-            match.playerB = second.userId();
-            match.nicknameB = second.nickname();
+            match.playerA = first.id();
+            match.nicknameA = first.name();
+            match.playerB = second.id();
+            match.nicknameB = second.name();
             quarter.add(match);
-            startGame(match, PREP_SECONDS);
+            prepareMatch(match);
         }
+        advance(bracket);
         brackets.put(bracket.id, bracket);
         byRoom.put(roomId, bracket.id);
         rooms.systemSay(roomId, "淘汰赛开赛：" + quarter.stream()
@@ -158,6 +170,13 @@ public class DrillKnockoutService {
             match.reportB = report;
         } else {
             throw GameException.badRequest("DRILL_KNOCKOUT_NOT_PLAYER", "不在该场对局中");
+        }
+        // 对手是机器人教练：按本局 seed 生成一份稳定的战绩，立即结算
+        if (isBot(match.playerA) && match.reportA == null) {
+            match.reportA = botReport(match);
+        }
+        if (isBot(match.playerB) && match.reportB == null) {
+            match.reportB = botReport(match);
         }
         if (match.reportA != null && match.reportB != null) {
             settleGame(bracket, match);
@@ -255,8 +274,34 @@ public class DrillKnockoutService {
             next.playerB = second.winner;
             next.nicknameB = secondAdvances ? second.nicknameA : second.nicknameB;
             current.add(next);
-            startGame(next, PREP_SECONDS);
+            prepareMatch(next);
         }
+    }
+
+    private static boolean isBot(String userId) {
+        return userId != null && userId.startsWith("bot-");
+    }
+
+    /** 机器人对机器人直接按种子序晋级；真人场次正常发 seed 等上报。 */
+    private void prepareMatch(Match match) {
+        if (isBot(match.playerA) && isBot(match.playerB)) {
+            match.winner = match.playerA;
+            match.winsA = match.target();
+            match.seed = 0;
+            match.prepEndsAt = 0;
+            return;
+        }
+        startGame(match, PREP_SECONDS);
+    }
+
+    /** 用本局 seed 生成稳定的机器人战绩（10 轮）。 */
+    private static GameReport botReport(Match match) {
+        java.util.Random random = new java.util.Random(match.seed + match.game * 131L);
+        int wins = 3 + random.nextInt(6);
+        int losses = KNOCKOUT_ROUNDS - wins;
+        int sli = 40 + random.nextInt(61);
+        int survivors = random.nextInt(9);
+        return new GameReport(match.game, wins, losses, 0, sli, survivors);
     }
 
     private void startGame(Match match, int prepSeconds) {

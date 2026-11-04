@@ -37,20 +37,24 @@ class DrillKnockoutServiceTest {
         return null;
     }
 
-    /** 8 人打满 15 轮排位赛，返回已结束的锦标赛房间。 */
     private String finishedTournament() {
+        return finishedTournament(8);
+    }
+
+    /** 指定人数打满 15 轮排位赛，返回已结束的锦标赛房间。 */
+    private String finishedTournament(int players) {
         String roomId = (String) rooms.create(player(1), "TOURNAMENT", "TOURNAMENT").get("id");
-        for (int index = 2; index <= 8; index += 1) {
+        for (int index = 2; index <= players; index += 1) {
             rooms.join(player(index), roomId);
         }
-        for (int index = 1; index <= 8; index += 1) {
+        for (int index = 1; index <= players; index += 1) {
             rooms.ready(player(index), roomId);
         }
         for (int round = 1; round <= 15; round += 1) {
-            for (int index = 1; index <= 8; index += 1) {
+            for (int index = 1; index <= players; index += 1) {
                 rooms.requestSkip(player(index), roomId);
             }
-            for (int index = 1; index <= 8; index += 1) {
+            for (int index = 1; index <= players; index += 1) {
                 rooms.report(player(index), roomId, round, 100, index <= 4 ? "WIN" : "LOSS", null);
             }
         }
@@ -70,6 +74,51 @@ class DrillKnockoutServiceTest {
         for (int game = 1; game <= wins; game += 1) {
             playGame(knockout, bracketId, matchId, winner, loser, game);
         }
+    }
+
+    /** 对手是机器人教练时，真人只报自己这一侧，服务端自动补机器人战绩。 */
+    private static void playHumanMatch(
+            DrillKnockoutService knockout, String bracketId, String matchId, GameIdentity human,
+            int wins) {
+        for (int game = 1; game <= wins; game += 1) {
+            knockout.report(human, bracketId, matchId,
+                    new DrillKnockoutService.GameReport(game, 9, 1, 0, 100, 8));
+        }
+    }
+
+    @Test
+    void 不足八人时机器人补位() {
+        String roomId = finishedTournament(2);
+        Map<String, Object> bracket = knockout.start(player(1), roomId);
+        String bracketId = (String) bracket.get("id");
+        List<?> quarter = (List<?>) ((List<?>) bracket.get("rounds")).get(0);
+        assertEquals(4, quarter.size());
+        assertEquals("u1", asMap(asMap(quarter.get(0)).get("playerA")).get("userId"));
+        assertEquals("bot-6", asMap(asMap(quarter.get(0)).get("playerB")).get("userId"));
+        // 两个机器人对局直接按种子序晋级
+        assertEquals("bot-2", asMap(quarter.get(1)).get("winner"));
+        assertEquals("bot-1", asMap(quarter.get(2)).get("winner"));
+        assertEquals(null, asMap(quarter.get(3)).get("winner"));
+
+        playHumanMatch(knockout, bracketId, (String) asMap(quarter.get(0)).get("id"), player(1), 2);
+        playHumanMatch(knockout, bracketId, (String) asMap(quarter.get(3)).get("id"), player(2), 2);
+
+        Map<String, Object> view = knockout.state(player(1), bracketId);
+        assertEquals(2, ((List<?>) ((List<?>) view.get("rounds")).get(1)).size());
+
+        List<String> ids = knockout.matchIds(bracketId);
+        playHumanMatch(knockout, bracketId, ids.get(4), player(1), 3);
+        playHumanMatch(knockout, bracketId, ids.get(5), player(2), 3);
+        ids = knockout.matchIds(bracketId);
+        assertEquals(7, ids.size());
+        playMatch(knockout, bracketId, ids.get(6), player(1), player(2), 3);
+
+        Map<String, Object> finalView = knockout.state(player(1), bracketId);
+        assertEquals("u1", finalView.get("champion"));
+        List<?> chats = (List<?>) rooms.state(player(1), roomId).get("chats");
+        assertTrue(chats.stream()
+                .map(entry -> String.valueOf(asMap(entry).get("text")))
+                .anyMatch(text -> text.contains("机器人教练")));
     }
 
     @Test
