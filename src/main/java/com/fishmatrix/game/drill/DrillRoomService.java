@@ -284,6 +284,32 @@ public class DrillRoomService {
         return view(room);
     }
 
+    /** 赛事播报：以系统身份写入房间频道，不占用玩家发言。 */
+    public void systemSay(String roomId, String text) {
+        Room room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+        String clean = text == null ? "" : text.trim();
+        if (clean.isEmpty()) {
+            return;
+        }
+        if (clean.length() > 200) {
+            clean = clean.substring(0, 200);
+        }
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("userId", "system");
+        message.put("nickname", "赛事播报");
+        message.put("text", clean);
+        message.put("at", System.currentTimeMillis());
+        message.put("kind", "system");
+        room.chats.add(message);
+        while (room.chats.size() > 50) {
+            room.chats.remove(0);
+        }
+        room.updatedAt = System.currentTimeMillis();
+    }
+
     public Map<String, Object> state(GameIdentity identity, String roomId) {
         return view(require(roomId));
     }

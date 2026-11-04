@@ -92,6 +92,11 @@ class DrillKnockoutServiceTest {
         assertEquals("u5", asMap(second.get("playerB")).get("userId"));
         assertTrue(((Number) first.get("seed")).longValue() != 0);
 
+        List<?> chats = (List<?>) rooms.state(player(1), roomId).get("chats");
+        assertTrue(chats.stream()
+                .map(entry -> String.valueOf(asMap(entry).get("text")))
+                .anyMatch(text -> text.contains("淘汰赛开赛")));
+
         // 同一房间重复开赛返回同一届
         assertEquals(bracketId, knockout.start(player(2), roomId).get("id"));
     }
@@ -153,6 +158,11 @@ class DrillKnockoutServiceTest {
         Map<String, Object> finalMatch = match(view, ids.get(6));
         assertEquals(3, finalMatch.get("winsA"));
         assertEquals(5, finalMatch.get("bestOf"));
+
+        List<?> chats = (List<?>) rooms.state(player(1), roomId).get("chats");
+        assertTrue(chats.stream()
+                .map(entry -> String.valueOf(asMap(entry).get("text")))
+                .anyMatch(text -> text.contains("夺得冠军")));
     }
 
     @Test

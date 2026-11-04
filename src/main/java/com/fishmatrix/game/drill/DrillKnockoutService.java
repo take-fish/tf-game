@@ -111,6 +111,10 @@ public class DrillKnockoutService {
         }
         brackets.put(bracket.id, bracket);
         byRoom.put(roomId, bracket.id);
+        rooms.systemSay(roomId, "淘汰赛开赛：" + quarter.stream()
+                .map(match -> match.nicknameA + " vs " + match.nicknameB)
+                .reduce((left, right) -> left + "，" + right)
+                .orElse(""));
         return view(bracket);
     }
 
@@ -178,16 +182,44 @@ public class DrillKnockoutService {
         } else if (result < 0) {
             match.winsB += 1;
         }
+        if (result == 0) {
+            rooms.systemSay(bracket.roomId,
+                    "第 " + match.game + " 局战平（" + scoreA + ":" + scoreB + "），重开一局");
+        } else {
+            String gameWinner = result > 0 ? match.nicknameA : match.nicknameB;
+            rooms.systemSay(bracket.roomId, gameWinner + " 拿下第 " + match.game + " 局，大比分 "
+                    + match.winsA + ":" + match.winsB);
+        }
         if (match.winsA >= match.target()) {
             match.winner = match.playerA;
         } else if (match.winsB >= match.target()) {
             match.winner = match.playerB;
+        }
+        if (match.winner != null) {
+            boolean firstWins = match.winner.equals(match.playerA);
+            String winnerName = firstWins ? match.nicknameA : match.nicknameB;
+            String loserName = firstWins ? match.nicknameB : match.nicknameA;
+            int winnerWins = firstWins ? match.winsA : match.winsB;
+            int loserWins = firstWins ? match.winsB : match.winsA;
+            String suffix = match.round == 2
+                    ? "夺得冠军"
+                    : "晋级" + roundName(match.round + 1);
+            rooms.systemSay(bracket.roomId,
+                    winnerName + " " + winnerWins + ":" + loserWins + " 击败 " + loserName + "，" + suffix);
         }
         if (match.winner == null) {
             match.game += 1;
             startGame(match, GAME_PREP_SECONDS);
         }
         advance(bracket);
+    }
+
+    private static String roundName(int round) {
+        return switch (round) {
+            case 1 -> "四强";
+            case 2 -> "决赛";
+            default -> "八强";
+        };
     }
 
     private void advance(Bracket bracket) {
