@@ -15,26 +15,35 @@ import org.springframework.stereotype.Service;
 /**
  * 容量编排演练的锁步房间（进程内，单实例）。
  *
- * <p>良跑跑是回合制多阶段玩法，一局最多 8 人。这里只做“同局”的权威部分：
- * 下发同一个 seed、同步轮次、仲裁选秀轮盘的共享候选、收集轮末血量并结算淘汰与名次。
- * 棋盘与战斗由各端用同一 seed 的本地引擎推演（引擎本身是确定性 + mulberry32），
- * 因此不需要服务端跑一遍战斗。</p>
+ * <p>两种模式：</p>
+ * <ul>
+ *   <li><b>休闲（CASUAL）</b>：有血量、会淘汰，25 轮收口，按存活/血量排名；</li>
+ *   <li><b>锦标赛（TOURNAMENT）</b>：无血量、不淘汰，15 轮排位只记战绩（胜/负/平），
+ *       局末按战绩排 1–8 名，并按名次发奖励（已合成装备 + 配额）。</li>
+ * </ul>
  *
- * <p>阶段约定：{@code WAITING} 等人 → {@code RUNNING} 逐轮推进 → {@code FINISHED} 出名次。
- * 每轮由客户端在本地准备期结束后提交 {@code report}（血量 / 是否存活 / 本轮选秀抢到的候选）。</p>
+ * <p>棋盘与战斗由各端用同一 seed 的本地引擎推演（引擎是确定性 + mulberry32），
+ * 服务端只做同局权威部分：下发 seed、同步轮次、仲裁选秀候选、收战绩并发奖。</p>
  */
 @Service
 public class DrillRoomService {
 
     public static final String SOURCE_CASUAL = "CASUAL";
     public static final String SOURCE_TOURNAMENT = "TOURNAMENT";
+    public static final String MODE_CASUAL = "CASUAL";
+    public static final String MODE_TOURNAMENT = "TOURNAMENT";
     public static final String STATUS_WAITING = "WAITING";
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_FINISHED = "FINISHED";
 
-    private static final int MAX_PLAYERS = 8;
+    public static final int MAX_PLAYERS = 8;
+    public static final int TOURNAMENT_ROUNDS = 15;
+    public static final int CASUAL_ROUNDS = 25;
+    /** 局间备战 25 秒；进局前 35 秒，由客户端按这两个值倒计时。 */
+    public static final int INTERMISSION_SECONDS = 25;
+    public static final int PRELUDE_SECONDS = 35;
+
     private static final int START_HP = 100;
-    /** 房间闲置多久自动清理，避免内存泄漏。 */
     private static final long IDLE_TTL_MILLIS = 30 * 60 * 1000L;
 
     private final Map<String, Room> rooms = new ConcurrentHashMap<>();
@@ -46,40 +55,67 @@ public class DrillRoomService {
         public int hp = START_HP;
         public boolean alive = true;
         public boolean ready;
-        /** 已提交报到的最靠前的轮次，避免同一轮重复提交。 */
         public int reportedRound;
+        public int wins;
+        public int losses;
+        public int draws;
 
         Player(String userId, String nickname, int seat) {
             this.userId = userId;
             this.nickname = nickname;
             this.seat = seat;
         }
+
+        int score() {
+            return wins * 3 + draws;
+        }
     }
 
     public static final class Room {
         public final String id;
         public final String source;
+        public final String mode;
+        public final int totalRounds;
         public final long seed;
         public final long createdAt = System.currentTimeMillis();
         public final Map<String, Player> players = new LinkedHashMap<>();
-        /** 选秀轮盘：itemId -> 抢到的 userId，先到先得。 */
         public final Map<String, String> carouselWins = new ConcurrentHashMap<>();
-        /** 淘汰顺序，先淘汰的排前面。 */
         public final List<String> eliminationOrder = new ArrayList<>();
+        /** 锦标赛最终名次（userId → 名次）与奖励。 */
+        public final Map<String, Integer> placement = new LinkedHashMap<>();
+        public final Map<String, Map<String, Integer>> rewards = new LinkedHashMap<>();
         public String status = STATUS_WAITING;
         public int round;
         public long updatedAt = createdAt;
 
-        Room(String id, String source, long seed) {
+        Room(String id, String source, String mode, int totalRounds, long seed) {
             this.id = id;
             this.source = source;
+            this.mode = mode;
+            this.totalRounds = totalRounds;
             this.seed = seed;
+        }
+
+        boolean tournament() {
+            return MODE_TOURNAMENT.equals(mode);
         }
     }
 
     public Map<String, Object> create(GameIdentity identity, String source) {
+        return create(identity, source, MODE_CASUAL);
+    }
+
+    public Map<String, Object> create(GameIdentity identity, String source, String mode) {
+        String normalizedMode = MODE_TOURNAMENT.equalsIgnoreCase(mode == null ? "" : mode)
+                ? MODE_TOURNAMENT
+                : MODE_CASUAL;
+        int rounds = MODE_TOURNAMENT.equals(normalizedMode) ? TOURNAMENT_ROUNDS : CASUAL_ROUNDS;
+        String normalizedSource = MODE_TOURNAMENT.equals(normalizedMode)
+                ? SOURCE_TOURNAMENT
+                : normalizeSource(source);
         String roomId = UUID.randomUUID().toString().substring(0, 8);
-        Room room = new Room(roomId, normalizeSource(source), ThreadLocalRandom.current().nextLong());
+        Room room = new Room(roomId, normalizedSource, normalizedMode, rounds,
+                ThreadLocalRandom.current().nextLong());
         room.players.put(identity.userId(), new Player(identity.userId(), identity.nickname(), 0));
         rooms.put(roomId, room);
         return view(room);
@@ -101,7 +137,8 @@ public class DrillRoomService {
         if (STATUS_RUNNING.equals(room.status)) {
             throw GameException.badRequest("DRILL_ROOM_RUNNING", "房间已开始，无法加入");
         }
-        room.players.put(identity.userId(), new Player(identity.userId(), identity.nickname(), room.players.size()));
+        room.players.put(identity.userId(),
+                new Player(identity.userId(), identity.nickname(), room.players.size()));
         room.updatedAt = System.currentTimeMillis();
         return view(room);
     }
@@ -121,23 +158,12 @@ public class DrillRoomService {
         return view(room);
     }
 
-    /**
-     * 轮末报到：客户端在本地跑完一轮后提交。
-     *
-     * @param round      客户端跑完的轮次，必须等于房间当前轮次
-     * @param hp         剩余血量（≤0 视为淘汰）
-     * @param carouselId 本轮选秀抢到的候选（没有则 null）
-     */
+    /** 休闲模式轮末报到：提交血量，血量归零即淘汰。 */
     public Map<String, Object> report(
             GameIdentity identity, String roomId, int round, int hp, String carouselId) {
         Room room = require(roomId);
         Player player = requirePlayer(room, identity.userId());
-        if (!STATUS_RUNNING.equals(room.status)) {
-            throw GameException.badRequest("DRILL_ROOM_NOT_RUNNING", "房间未开始");
-        }
-        if (round != room.round) {
-            throw GameException.badRequest("DRILL_ROOM_ROUND_MISMATCH", "轮次不一致，请等待同步");
-        }
+        requireReportable(room, round);
         if (player.reportedRound >= round) {
             return view(room);
         }
@@ -147,21 +173,38 @@ public class DrillRoomService {
             player.alive = false;
             room.eliminationOrder.add(player.userId);
         }
-        if (carouselId != null && !carouselId.isBlank()) {
-            room.carouselWins.putIfAbsent(carouselId, player.userId);
-        }
+        recordCarousel(room, player.userId, carouselId);
         room.updatedAt = System.currentTimeMillis();
+        advanceIfAllReported(room);
+        return view(room);
+    }
 
-        boolean allReported = room.players.values().stream()
-                .allMatch(member -> !member.alive || member.reportedRound >= round);
-        if (allReported) {
-            long aliveCount = room.players.values().stream().filter(member -> member.alive).count();
-            if (aliveCount <= 1) {
-                finish(room);
-            } else {
-                room.round += 1;
-            }
+    /**
+     * 锦标赛模式轮末报到：只记战绩，不结算血量、不淘汰。
+     *
+     * @param result 本轮对位结果：win / loss / draw
+     */
+    public Map<String, Object> reportTournament(
+            GameIdentity identity, String roomId, int round, String result, String carouselId) {
+        Room room = require(roomId);
+        Player player = requirePlayer(room, identity.userId());
+        if (!room.tournament()) {
+            throw GameException.badRequest("DRILL_ROOM_NOT_TOURNAMENT", "当前不是锦标赛房间");
         }
+        requireReportable(room, round);
+        if (player.reportedRound >= round) {
+            return view(room);
+        }
+        player.reportedRound = round;
+        String normalized = result == null ? "" : result.trim().toUpperCase();
+        switch (normalized) {
+            case "WIN" -> player.wins += 1;
+            case "DRAW" -> player.draws += 1;
+            default -> player.losses += 1;
+        }
+        recordCarousel(room, player.userId, carouselId);
+        room.updatedAt = System.currentTimeMillis();
+        advanceIfAllReported(room);
         return view(room);
     }
 
@@ -174,7 +217,29 @@ public class DrillRoomService {
         rooms.entrySet().removeIf(entry -> now - entry.getValue().updatedAt > IDLE_TTL_MILLIS);
     }
 
-    private void finish(Room room) {
+    private void advanceIfAllReported(Room room) {
+        boolean allReported = room.players.values().stream()
+                .allMatch(member -> !member.alive || member.reportedRound >= room.round);
+        if (!allReported) {
+            return;
+        }
+        if (room.tournament()) {
+            if (room.round >= room.totalRounds) {
+                finishTournament(room);
+            } else {
+                room.round += 1;
+            }
+            return;
+        }
+        long aliveCount = room.players.values().stream().filter(member -> member.alive).count();
+        if (aliveCount <= 1) {
+            finishCasual(room);
+        } else {
+            room.round += 1;
+        }
+    }
+
+    private void finishCasual(Room room) {
         room.status = STATUS_FINISHED;
         List<Player> ranked = new ArrayList<>(room.players.values());
         ranked.sort(Comparator
@@ -182,32 +247,94 @@ public class DrillRoomService {
                 .thenComparing(member -> member.alive ? 0 : room.eliminationOrder.indexOf(member.userId))
                 .thenComparing(member -> -member.hp));
         room.eliminationOrder.clear();
+        int rank = 1;
         for (Player member : ranked) {
             room.eliminationOrder.add(member.userId);
+            room.placement.put(member.userId, rank);
+            rank += 1;
+        }
+    }
+
+    private void finishTournament(Room room) {
+        room.status = STATUS_FINISHED;
+        List<Player> ranked = new ArrayList<>(room.players.values());
+        ranked.sort(Comparator
+                .comparingInt(Player::score).reversed()
+                .thenComparing(Comparator.comparingInt((Player member) -> member.wins).reversed())
+                .thenComparingInt(member -> member.losses));
+        int rank = 1;
+        for (Player member : ranked) {
+            room.placement.put(member.userId, rank);
+            room.rewards.put(member.userId, rewardOf(rank));
+            rank += 1;
+        }
+    }
+
+    /** 排位奖励：1 名 4 件/30 配额，2 名 3/25，3–4 名 2/20，其余 1/15。 */
+    public static Map<String, Integer> rewardOf(int placement) {
+        int items = placement == 1 ? 4 : placement == 2 ? 3 : placement <= 4 ? 2 : 1;
+        int quota = placement == 1 ? 30 : placement == 2 ? 25 : placement <= 4 ? 20 : 15;
+        return Map.of("items", items, "quota", quota);
+    }
+
+    private void recordCarousel(Room room, String userId, String carouselId) {
+        if (carouselId != null && !carouselId.isBlank()) {
+            room.carouselWins.putIfAbsent(carouselId, userId);
+        }
+    }
+
+    private void requireReportable(Room room, int round) {
+        if (!STATUS_RUNNING.equals(room.status)) {
+            throw GameException.badRequest("DRILL_ROOM_NOT_RUNNING", "房间未开始");
+        }
+        if (round != room.round) {
+            throw GameException.badRequest("DRILL_ROOM_ROUND_MISMATCH", "轮次不一致，请等待同步");
         }
     }
 
     private Map<String, Object> view(Room room) {
+        List<Player> ordered = new ArrayList<>(room.players.values());
+        if (room.tournament()) {
+            ordered.sort(Comparator
+                    .comparingInt(Player::score).reversed()
+                    .thenComparing(Comparator.comparingInt((Player member) -> member.wins).reversed())
+                    .thenComparingInt(member -> member.losses));
+        }
         List<Map<String, Object>> players = new ArrayList<>();
-        for (Player member : room.players.values()) {
-            players.add(Map.of(
-                    "userId", member.userId,
-                    "nickname", member.nickname,
-                    "seat", member.seat,
-                    "hp", member.hp,
-                    "alive", member.alive,
-                    "ready", member.ready));
+        for (Player member : ordered) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("userId", member.userId);
+            row.put("nickname", member.nickname);
+            row.put("seat", member.seat);
+            row.put("ready", member.ready);
+            row.put("wins", member.wins);
+            row.put("losses", member.losses);
+            row.put("draws", member.draws);
+            row.put("score", member.score());
+            if (!room.tournament()) {
+                row.put("hp", member.hp);
+                row.put("alive", member.alive);
+            }
+            row.put("placement", room.placement.get(member.userId));
+            row.put("reward", room.rewards.get(member.userId));
+            players.add(row);
         }
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", room.id);
         view.put("source", room.source);
+        view.put("mode", room.mode);
         view.put("status", room.status);
         view.put("seed", room.seed);
         view.put("round", room.round);
+        view.put("totalRounds", room.totalRounds);
         view.put("maxPlayers", MAX_PLAYERS);
+        view.put("intermissionSeconds", INTERMISSION_SECONDS);
+        view.put("preludeSeconds", PRELUDE_SECONDS);
         view.put("players", players);
         view.put("carouselWins", Map.copyOf(room.carouselWins));
         view.put("placement", List.copyOf(room.eliminationOrder));
+        view.put("placements", Map.copyOf(room.placement));
+        view.put("rewards", Map.copyOf(room.rewards));
         return view;
     }
 
