@@ -76,4 +76,37 @@ class DrillRoomServiceTest {
         service.ready(player(2), roomId);
         assertThrows(GameException.class, () -> service.report(player(1), roomId, 3, 50, null));
     }
+
+    @Test
+    void 锦标赛15轮只记战绩并排名发奖() {
+        Map<String, Object> created = service.create(player(1), "TOURNAMENT", "TOURNAMENT");
+        String roomId = (String) created.get("id");
+        assertEquals("TOURNAMENT", created.get("mode"));
+        assertEquals(15, created.get("totalRounds"));
+
+        for (int index = 2; index <= 8; index += 1) {
+            service.join(player(index), roomId);
+        }
+        for (int index = 1; index <= 8; index += 1) {
+            service.ready(player(index), roomId);
+        }
+
+        for (int round = 1; round <= 15; round += 1) {
+            for (int index = 1; index <= 8; index += 1) {
+                String result = index == 1 || index % 2 == 0 ? "WIN" : "LOSS";
+                service.reportTournament(player(index), roomId, round, result, null);
+            }
+        }
+
+        Map<String, Object> finished = service.state(player(1), roomId);
+        assertEquals("FINISHED", finished.get("status"));
+        @SuppressWarnings("unchecked")
+        Map<String, Integer> placements = (Map<String, Integer>) finished.get("placements");
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Integer>> rewards = (Map<String, Map<String, Integer>>) finished.get("rewards");
+        assertEquals(8, placements.size());
+        assertEquals(8, rewards.size());
+        assertEquals(4, rewards.get("u1").get("items"));
+        assertEquals(30, rewards.get("u1").get("quota"));
+    }
 }
