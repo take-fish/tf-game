@@ -160,6 +160,7 @@ class DrillRoomServiceTest {
         Map<String, Object> first = asMap(((List<?>) view.get("players")).get(0));
         assertEquals("u1", first.get("userId"));
         assertEquals(1, first.get("wins"));
+        assertEquals(1, first.get("reportedRound"));
     }
 
     @Test

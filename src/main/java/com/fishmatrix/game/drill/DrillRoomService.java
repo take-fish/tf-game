@@ -474,6 +474,7 @@ public class DrillRoomService {
             row.put("losses", member.losses);
             row.put("draws", member.draws);
             row.put("score", member.score());
+            row.put("reportedRound", member.reportedRound);
             if (!room.tournament()) {
                 row.put("hp", member.hp);
                 row.put("alive", member.alive);
