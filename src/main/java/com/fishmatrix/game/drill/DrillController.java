@@ -27,6 +27,9 @@ public class DrillController {
     public record CreateRoomRequest(String source, String mode) {
     }
 
+    public record ChatRequest(String text) {
+    }
+
     public record ReportRequest(Integer round, Integer hp, String result, String carouselId) {
     }
 
@@ -48,6 +51,16 @@ public class DrillController {
     @PostMapping("/rooms/{roomId}/ready")
     public Map<String, Object> ready(@PathVariable String roomId) {
         return rooms.ready(identity(), roomId);
+    }
+
+    @PostMapping("/rooms/{roomId}/skip")
+    public Map<String, Object> skip(@PathVariable String roomId) {
+        return rooms.requestSkip(identity(), roomId);
+    }
+
+    @PostMapping("/rooms/{roomId}/chat")
+    public Map<String, Object> chat(@PathVariable String roomId, @RequestBody ChatRequest request) {
+        return rooms.chat(identity(), roomId, request == null ? null : request.text());
     }
 
     @PostMapping("/rooms/{roomId}/report")
