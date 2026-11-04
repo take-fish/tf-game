@@ -37,6 +37,10 @@ public class DrillRoomService {
     public static final String STATUS_WAITING = "WAITING";
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_FINISHED = "FINISHED";
+    /** 每轮开打前先进入 PREP 备战；截止时间到或全员点「直接开始」后进入 BATTLE。 */
+    public static final String PHASE_PREP = "PREP";
+    public static final String PHASE_BATTLE = "BATTLE";
+    public static final String PHASE_FINISHED = "FINISHED";
 
     public static final int MAX_PLAYERS = 8;
     public static final int TOURNAMENT_ROUNDS = 15;
@@ -92,6 +96,10 @@ public class DrillRoomService {
         public final java.util.List<Map<String, Object>> chats = new java.util.ArrayList<>();
         public final Map<String, Map<String, Integer>> rewards = new LinkedHashMap<>();
         public String status = STATUS_WAITING;
+        /** PREP 备战 / BATTLE 本轮进行中 / FINISHED 已结束。 */
+        public String phase = PHASE_PREP;
+        /** 本轮备战截止时间（epoch millis）；0 表示还没开局。 */
+        public long prepEndsAt;
         public int round;
         public long updatedAt = createdAt;
 
@@ -161,6 +169,7 @@ public class DrillRoomService {
         if (room.players.size() >= 2 && room.players.values().stream().allMatch(member -> member.ready)) {
             room.status = STATUS_RUNNING;
             room.round = 1;
+            enterPrep(room);
         }
         return view(room);
     }
@@ -168,7 +177,19 @@ public class DrillRoomService {
     /** 休闲模式轮末报到：提交血量，血量归零即淘汰。 */
     public Map<String, Object> report(
             GameIdentity identity, String roomId, int round, int hp, String carouselId) {
+        return report(identity, roomId, round, hp, null, carouselId);
+    }
+
+    /**
+     * 统一轮末报到：锦标赛房间按 {@code result}（win/loss/draw）记战绩，
+     * 休闲房间按 {@code hp} 结算血量；由房间模式自动分流。
+     */
+    public Map<String, Object> report(
+            GameIdentity identity, String roomId, int round, int hp, String result, String carouselId) {
         Room room = require(roomId);
+        if (room.tournament()) {
+            return reportTournament(identity, roomId, round, result, carouselId);
+        }
         Player player = requirePlayer(room, identity.userId());
         requireReportable(room, round);
         if (player.reportedRound >= round) {
@@ -225,10 +246,14 @@ public class DrillRoomService {
         if (STATUS_FINISHED.equals(room.status)) {
             throw GameException.badRequest("DRILL_ROOM_CLOSED", "房间已结束");
         }
+        syncPhase(room);
         if (!room.skipGranted) {
             room.skipVotes.add(identity.userId());
             if (!room.players.isEmpty() && room.skipVotes.size() >= room.players.size()) {
+                // 全员都点了「直接开始」：跳过剩余备战，本轮立即开打。
                 room.skipGranted = true;
+                room.phase = PHASE_BATTLE;
+                room.prepEndsAt = System.currentTimeMillis();
             }
         }
         room.updatedAt = System.currentTimeMillis();
@@ -279,6 +304,7 @@ public class DrillRoomService {
                 finishTournament(room);
             } else {
                 room.round += 1;
+                enterPrep(room);
             }
             return;
         }
@@ -287,11 +313,33 @@ public class DrillRoomService {
             finishCasual(room);
         } else {
             room.round += 1;
+            enterPrep(room);
+        }
+    }
+
+    /** 进入一轮备战：清空上一轮的「直接开始」投票，并按进局前/局间设置截止时间。 */
+    private void enterPrep(Room room) {
+        room.phase = PHASE_PREP;
+        room.skipVotes.clear();
+        room.skipGranted = false;
+        int seconds = room.round <= 1 ? PRELUDE_SECONDS : INTERMISSION_SECONDS;
+        room.prepEndsAt = System.currentTimeMillis() + seconds * 1000L;
+    }
+
+    /** 截止时间到 → BATTLE（客户端轮询 state 时由服务端翻阶段）。 */
+    private void syncPhase(Room room) {
+        if (STATUS_RUNNING.equals(room.status)
+                && PHASE_PREP.equals(room.phase)
+                && room.prepEndsAt > 0
+                && System.currentTimeMillis() >= room.prepEndsAt) {
+            room.phase = PHASE_BATTLE;
         }
     }
 
     private void finishCasual(Room room) {
         room.status = STATUS_FINISHED;
+        room.phase = PHASE_FINISHED;
+        room.prepEndsAt = 0;
         List<Player> ranked = new ArrayList<>(room.players.values());
         ranked.sort(Comparator
                 .comparing((Player member) -> !member.alive)
@@ -308,6 +356,8 @@ public class DrillRoomService {
 
     private void finishTournament(Room room) {
         room.status = STATUS_FINISHED;
+        room.phase = PHASE_FINISHED;
+        room.prepEndsAt = 0;
         List<Player> ranked = new ArrayList<>(room.players.values());
         ranked.sort(Comparator
                 .comparingInt(Player::score).reversed()
@@ -335,8 +385,12 @@ public class DrillRoomService {
     }
 
     private void requireReportable(Room room, int round) {
+        syncPhase(room);
         if (!STATUS_RUNNING.equals(room.status)) {
             throw GameException.badRequest("DRILL_ROOM_NOT_RUNNING", "房间未开始");
+        }
+        if (!PHASE_BATTLE.equals(room.phase)) {
+            throw GameException.badRequest("DRILL_ROOM_PREP", "备战尚未结束");
         }
         if (round != room.round) {
             throw GameException.badRequest("DRILL_ROOM_ROUND_MISMATCH", "轮次不一致，请等待同步");
@@ -344,6 +398,7 @@ public class DrillRoomService {
     }
 
     private Map<String, Object> view(Room room) {
+        syncPhase(room);
         List<Player> ordered = new ArrayList<>(room.players.values());
         if (room.tournament()) {
             ordered.sort(Comparator
@@ -375,9 +430,12 @@ public class DrillRoomService {
         view.put("source", room.source);
         view.put("mode", room.mode);
         view.put("status", room.status);
+        view.put("phase", room.phase);
         view.put("seed", room.seed);
         view.put("round", room.round);
         view.put("totalRounds", room.totalRounds);
+        view.put("serverTime", System.currentTimeMillis());
+        view.put("prepEndsAt", room.prepEndsAt);
         view.put("maxPlayers", MAX_PLAYERS);
         view.put("intermissionSeconds", INTERMISSION_SECONDS);
         view.put("preludeSeconds", PRELUDE_SECONDS);
