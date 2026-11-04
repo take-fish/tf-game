@@ -118,15 +118,17 @@ public class DrillKnockoutService {
             match.playerB = second.id();
             match.nicknameB = second.name();
             quarter.add(match);
-            prepareMatch(match);
         }
-        advance(bracket);
-        brackets.put(bracket.id, bracket);
-        byRoom.put(roomId, bracket.id);
         rooms.systemSay(roomId, "淘汰赛开赛：" + quarter.stream()
                 .map(match -> match.nicknameA + " vs " + match.nicknameB)
                 .reduce((left, right) -> left + "，" + right)
                 .orElse(""));
+        for (Match match : quarter) {
+            prepareMatch(bracket, match);
+        }
+        advance(bracket);
+        brackets.put(bracket.id, bracket);
+        byRoom.put(roomId, bracket.id);
         return view(bracket);
     }
 
@@ -228,7 +230,7 @@ public class DrillKnockoutService {
         }
         if (match.winner == null) {
             match.game += 1;
-            startGame(match, GAME_PREP_SECONDS);
+            startGame(bracket, match, GAME_PREP_SECONDS);
         }
         advance(bracket);
     }
@@ -274,7 +276,7 @@ public class DrillKnockoutService {
             next.playerB = second.winner;
             next.nicknameB = secondAdvances ? second.nicknameA : second.nicknameB;
             current.add(next);
-            prepareMatch(next);
+            prepareMatch(bracket, next);
         }
     }
 
@@ -283,7 +285,7 @@ public class DrillKnockoutService {
     }
 
     /** 机器人对机器人直接按种子序晋级；真人场次正常发 seed 等上报。 */
-    private void prepareMatch(Match match) {
+    private void prepareMatch(Bracket bracket, Match match) {
         if (isBot(match.playerA) && isBot(match.playerB)) {
             match.winner = match.playerA;
             match.winsA = match.target();
@@ -291,7 +293,7 @@ public class DrillKnockoutService {
             match.prepEndsAt = 0;
             return;
         }
-        startGame(match, PREP_SECONDS);
+        startGame(bracket, match, PREP_SECONDS);
     }
 
     /** 用本局 seed 生成稳定的机器人战绩（10 轮）。 */
@@ -304,11 +306,14 @@ public class DrillKnockoutService {
         return new GameReport(match.game, wins, losses, 0, sli, survivors);
     }
 
-    private void startGame(Match match, int prepSeconds) {
+    private void startGame(Bracket bracket, Match match, int prepSeconds) {
         match.seed = ThreadLocalRandom.current().nextLong();
         match.prepEndsAt = System.currentTimeMillis() + prepSeconds * 1000L;
         match.reportA = null;
         match.reportB = null;
+        rooms.systemSay(bracket.roomId,
+                roundName(match.round) + " " + match.nicknameA + " vs " + match.nicknameB
+                        + " 第 " + match.game + " 局备战 " + prepSeconds + "s（等级/装备/配额已保留）");
     }
 
     private Map<String, Object> view(Bracket bracket) {
