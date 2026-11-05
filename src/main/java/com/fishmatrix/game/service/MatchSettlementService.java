@@ -82,10 +82,17 @@ class MatchSettlementService {
             resolvedWinner = higherSeedWinner(current);
             resolvedReason = reason + " · 高顺位晋级";
         }
-        // 积分赛统一 BO1，页面淘汰赛与阶梯决赛沿用创建时选择的赛制。
-        int maxGames = BracketPlanner.STAGE_LEAGUE.equals(current.stage())
-                ? 1
-                : maxGames(tournament == null ? "BO1" : tournament.format());
+        // 积分赛统一 BO1；容量编排按赛段固定（八强 BO3、四强/决赛 BO5）；
+        // 其余赛事沿用创建时选择的赛制。
+        int maxGames;
+        if (BracketPlanner.STAGE_LEAGUE.equals(current.stage())) {
+            maxGames = 1;
+        } else if (tournament != null && ArenaGames.CAPACITY_DRILL.equals(tournament.gameId())) {
+            maxGames = TournamentRules.capacityDrillMaxGames(
+                    current.stage(), current.roundNo(), tournament.totalRounds());
+        } else {
+            maxGames = maxGames(tournament == null ? "BO1" : tournament.format());
+        }
         int winsNeeded = (maxGames + 1) / 2;
 
         int player1Score = current.player1Score();
