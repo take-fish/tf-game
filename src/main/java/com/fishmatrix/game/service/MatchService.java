@@ -243,17 +243,17 @@ public class MatchService {
                 log.warn("自动开始下一局失败 match={}", round.matchId(), exception);
             }
         }
+        // 容量编排没有落子回合（turn_user_id 为空），按小局截止时间单独巡检。
+        for (RoundRecord round : MatchConverters.roundRecords(
+                matches.selectExpiredDrillRounds(SqlTime.toDateTime(now)))) {
+            try {
+                drill.settleExpired(round);
+            } catch (Exception exception) {
+                log.warn("容量编排超时结算失败 round={}", round.id(), exception);
+            }
+        }
         long moveDeadline = properties.moveTimeoutSeconds() * 1000L;
         for (RoundRecord round : MatchConverters.roundRecords(matches.selectRunningRounds())) {
-            if (ArenaGames.CAPACITY_DRILL.equals(round.gameId())) {
-                // 容量编排没有轮次落子：到演练截止时间按已上报情况收口。
-                try {
-                    drill.settleExpired(round);
-                } catch (Exception exception) {
-                    log.warn("容量编排超时结算失败 round={}", round.id(), exception);
-                }
-                continue;
-            }
             if (now - round.lastMoveAt() >= moveDeadline) {
                 try {
                     timeout(round);
