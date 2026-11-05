@@ -151,4 +151,15 @@ final class TournamentRules {
         }
         return match.roundNo() == tournament.totalRounds();
     }
+
+    /**
+     * 容量编排的赛制写死在赛段上：半决赛与决赛 BO5，八强及更早 BO3；
+     * 积分赛沿用统一的 BO1。创建时选择的 BO 仅作占位，不参与结算。
+     */
+    static int capacityDrillMaxGames(String stage, int roundNo, int totalRounds) {
+        if (BracketPlanner.STAGE_LEAGUE.equals(stage)) {
+            return 1;
+        }
+        return roundNo >= totalRounds - 1 ? 5 : 3;
+    }
 }
