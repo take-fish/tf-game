@@ -1,5 +1,7 @@
 package com.fishmatrix.game.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaRoundFinishedEvent;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.config.GameProperties;
@@ -8,6 +10,7 @@ import com.fishmatrix.game.converter.SqlTime;
 import com.fishmatrix.game.mapper.GameBlindPieceMapper;
 import com.fishmatrix.game.mapper.MatchMapper;
 import com.fishmatrix.game.mapper.TournamentMapper;
+import com.fishmatrix.game.model.DrillMatchReportedEvent;
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchRecord;
@@ -50,6 +53,7 @@ public class MatchService {
     private final MatchRoundService rounds;
     private final MatchMoveService moves;
     private final MatchSettlementService settlement;
+    private final MatchDrillService drill;
 
     @Autowired
     public MatchService(
@@ -62,7 +66,8 @@ public class MatchService {
             MatchBroadcaster broadcaster,
             MatchRoundService rounds,
             MatchMoveService moves,
-            MatchSettlementService settlement) {
+            MatchSettlementService settlement,
+            MatchDrillService drill) {
         this.matches = matches;
         this.tournaments = tournaments;
         this.registry = registry;
@@ -73,6 +78,7 @@ public class MatchService {
         this.rounds = rounds;
         this.moves = moves;
         this.settlement = settlement;
+        this.drill = drill;
     }
 
     /** 单元测试用：用原始依赖就地组装各协作组件。 */
@@ -91,14 +97,17 @@ public class MatchService {
         this.registry = registry;
         this.properties = properties;
         this.state = new MatchSessionState();
-        this.assembler = new MatchViewAssembler(matches, tournaments, blindPieces, arena);
+        ObjectMapper objectMapper = new ObjectMapper();
+        this.assembler = new MatchViewAssembler(
+                matches, tournaments, blindPieces, arena, objectMapper);
         this.broadcaster = new MatchBroadcaster(registry, this.assembler);
         this.settlement = new MatchSettlementService(
                 matches, tournaments, publisher, properties,
                 arena, exercise, this.state, this.broadcaster);
+        this.drill = new MatchDrillService(matches, this.settlement, publisher, objectMapper);
         this.rounds = new MatchRoundService(
                 matches, tournaments, blindPieces, arena, exercise, notifications,
-                registry, this.state, this.broadcaster, this.assembler);
+                registry, this.state, this.broadcaster, this.assembler, this.drill);
         this.moves = new MatchMoveService(
                 matches, tournaments, blindPieces, this.broadcaster,
                 this.assembler, this.settlement);
@@ -236,6 +245,15 @@ public class MatchService {
         }
         long moveDeadline = properties.moveTimeoutSeconds() * 1000L;
         for (RoundRecord round : MatchConverters.roundRecords(matches.selectRunningRounds())) {
+            if (ArenaGames.CAPACITY_DRILL.equals(round.gameId())) {
+                // 容量编排没有轮次落子：到演练截止时间按已上报情况收口。
+                try {
+                    drill.settleExpired(round);
+                } catch (Exception exception) {
+                    log.warn("容量编排超时结算失败 round={}", round.id(), exception);
+                }
+                continue;
+            }
             if (now - round.lastMoveAt() >= moveDeadline) {
                 try {
                     timeout(round);
@@ -302,9 +320,23 @@ public class MatchService {
                 // 休息中不断言，等下一局开始后继续计时。
                 continue;
             }
+            if (ArenaGames.CAPACITY_DRILL.equals(round.gameId())) {
+                // 容量编排在独立演练页完成，调度台标签页关闭不代表离场；
+                // 由小局截止时间兜底，不走 60 秒断线判负。
+                continue;
+            }
             String winner = userId.equals(match.player1UserId())
                     ? match.player2UserId() : match.player1UserId();
             settlement.finishGame(match, round, winner, "断线判负");
+        }
+    }
+
+    /** 容量编排收到一份新上报：推送对局视图，让双方窗口同步「已提交」。 */
+    @EventListener
+    public void onDrillMatchReported(DrillMatchReportedEvent event) {
+        MatchRecord match = findMatch(event.matchId());
+        if (match != null) {
+            broadcaster.broadcastMatch(match);
         }
     }
 

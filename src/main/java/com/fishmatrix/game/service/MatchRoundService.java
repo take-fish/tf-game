@@ -41,6 +41,7 @@ class MatchRoundService {
     private final MatchSessionState state;
     private final MatchBroadcaster broadcaster;
     private final MatchViewAssembler assembler;
+    private final MatchDrillService drill;
 
     /** 双方都准备后开第一局：随机先手。 */
     void startFirstGame(MatchRecord match) {
@@ -90,6 +91,7 @@ class MatchRoundService {
         String gameId = roundGameId == null ? TournamentService.GAME_ID : roundGameId;
         boolean arenaGame = ArenaGames.isArena(gameId) && arena.supports(gameId);
         boolean exerciseGame = exercise.supports(gameId);
+        boolean drillGame = ArenaGames.CAPACITY_DRILL.equals(gameId);
         String attacker = null;
         String stateJson = null;
         Long endsAt = null;
@@ -98,6 +100,11 @@ class MatchRoundService {
             attacker = ArenaGames.TOPOLOGY.equals(gameId) ? black : null;
             ArenaService.StartState start = arena.startState(
                     gameId, players, attacker, now, roundId);
+            stateJson = start.stateJson();
+            endsAt = start.endsAt();
+        } else if (drillGame) {
+            // 容量编排：服务端下发 seed 与截止时间，双方各自在本地跑一轮 8 人同局。
+            MatchDrillService.StartState start = drill.start(now, gameNo);
             stateJson = start.stateJson();
             endsAt = start.endsAt();
         } else if (exerciseGame) {
@@ -116,7 +123,7 @@ class MatchRoundService {
         }
         RoundRecord round = new RoundRecord(
                 roundId, match.id(), gameId, gameNo, "RUNNING",
-                black, white, attacker, arenaGame || exerciseGame ? null : black,
+                black, white, attacker, arenaGame || exerciseGame || drillGame ? null : black,
                 null, 0, now, null, "", stateJson, 0, now, endsAt, null);
         matches.insertRound(MatchConverters.toEntity(round));
         TournamentRecord tournament = assembler.tournamentOf(match);
