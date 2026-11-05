@@ -85,6 +85,14 @@
      ORDER BY last_move_at ASC
   </select>
 
+  <!-- 容量编排没有落子回合，turn_user_id 为空，需按 ends_at 单独巡检。 -->
+  <select id="selectExpiredDrillRounds" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round
+     WHERE status = 'RUNNING' AND game_id = 'capacity-drill'
+       AND ends_at IS NOT NULL AND ends_at &lt;= #{now}
+     ORDER BY ends_at ASC
+  </select>
+
   <update id="updateStatus">
     UPDATE game_match SET status = #{status} WHERE id = #{matchId}
   </update>
