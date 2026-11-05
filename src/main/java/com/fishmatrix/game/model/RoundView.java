@@ -29,5 +29,6 @@ public record RoundView(
         List<MoveView> moves,
         List<BlindPieceView> blindBoard,
         String firstUserId,
-        String secondUserId) {
+        String secondUserId,
+        Map<String, Object> drill) {
 }

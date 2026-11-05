@@ -127,6 +127,9 @@ public interface MatchMapper extends BaseMapper<GameMatchEntity> {
 
     GameRoundEntity selectRound(@Param("roundId") String roundId);
 
+    /** 锁定小局行：容量编排上报用，保证双方同时提交时不会互相覆盖。 */
+    GameRoundEntity selectRoundForUpdate(@Param("roundId") String roundId);
+
     GameRoundEntity selectLatestRound(@Param("matchId") String matchId);
 
     List<GameRoundEntity> selectRounds(@Param("matchId") String matchId);

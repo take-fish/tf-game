@@ -184,6 +184,10 @@
     SELECT * FROM game_round WHERE id = #{roundId}
   </select>
 
+  <select id="selectRoundForUpdate" resultType="com.fishmatrix.game.entity.GameRoundEntity">
+    SELECT * FROM game_round WHERE id = #{roundId} FOR UPDATE
+  </select>
+
   <select id="selectLatestRound" resultType="com.fishmatrix.game.entity.GameRoundEntity">
     SELECT * FROM game_round
      WHERE match_id = #{matchId}

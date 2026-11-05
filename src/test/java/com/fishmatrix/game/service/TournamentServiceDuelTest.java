@@ -112,6 +112,18 @@ class TournamentServiceDuelTest {
     }
 
     @Test
+    void capacityDrillCannotBeDueled() {
+        when(registry.byUser("u2")).thenReturn(List.of(mock(GameSession.class)));
+
+        assertThatThrownBy(() -> service.createDuel(
+                identity("u1"), new CreateDuelRequest("u2", "乙", "BO1", "capacity-drill", null)))
+                .isInstanceOf(GameException.class)
+                .hasMessage("容量编排专项仅支持锦标赛，不支持约战");
+
+        verify(tournaments, never()).insert(any(GameTournamentEntity.class));
+    }
+
+    @Test
     void formatMustBeBestOf() {
         when(registry.byUser("u2")).thenReturn(List.of(mock(GameSession.class)));
 
