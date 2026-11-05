@@ -96,6 +96,17 @@ class TournamentServiceGamePoolTest {
     }
 
     @Test
+    void capacityDrillChampionshipIsAcceptedAndNamed() {
+        TournamentView view = service.create(identity("u1"), new CreateTournamentRequest(
+                null, "BO1", players(), "capacity-drill", null, null));
+
+        assertThat(view.gameId()).isEqualTo("capacity-drill");
+        assertThat(view.name()).isEqualTo("容量编排演练");
+        assertThat(view.gamePool()).isEmpty();
+        assertThat(view.blindLayout()).isNull();
+    }
+
+    @Test
     void championshipDoesNotStoreRandomPool() {
         TournamentView view = service.create(identity("u1"), new CreateTournamentRequest(
                 null, "BO1", players(), "topology-arena", null,

@@ -1,5 +1,6 @@
 package com.fishmatrix.game.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.arena.ArenaService;
 import com.fishmatrix.game.converter.BlindPieceConverters;
@@ -33,6 +34,7 @@ class MatchViewAssembler {
     private final TournamentMapper tournaments;
     private final GameBlindPieceMapper blindPieces;
     private final ArenaService arena;
+    private final ObjectMapper objectMapper;
 
     /** 比赛详情：附带最新一局的小局视图。 */
     MatchView detail(MatchRecord match) {
@@ -85,7 +87,8 @@ class MatchViewAssembler {
                 ArenaGames.isArena(round.gameId())
                         ? List.of()
                         : MoveConverters.views(matches.selectMoves(round.id())),
-                blindBoard, round.blackUserId(), round.whiteUserId());
+                blindBoard, round.blackUserId(), round.whiteUserId(),
+                MatchDrillService.view(round, objectMapper));
     }
 
     TournamentRecord tournamentOf(MatchRecord match) {

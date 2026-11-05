@@ -3,10 +3,12 @@ package com.fishmatrix.game.controller;
 import com.fishmatrix.common.auth.UserContext;
 import com.fishmatrix.game.model.ChatMessageView;
 import com.fishmatrix.game.model.ChooseGameRequest;
+import com.fishmatrix.game.model.DrillReportRequest;
 import com.fishmatrix.game.model.GameIdentity;
 import com.fishmatrix.game.model.MatchView;
 import com.fishmatrix.game.model.SendChatRequest;
 import com.fishmatrix.game.service.GameChatService;
+import com.fishmatrix.game.service.MatchDrillService;
 import com.fishmatrix.game.service.MatchService;
 import com.fishmatrix.game.service.TournamentService;
 import java.util.List;
@@ -28,6 +30,7 @@ public class MatchController {
     private final MatchService matches;
     private final GameChatService chats;
     private final TournamentService tournaments;
+    private final MatchDrillService drills;
 
     @GetMapping("/active")
     public Map<String, Object> active() {
@@ -59,6 +62,16 @@ public class MatchController {
         MatchView match = matches.detailForUser(user, id);
         return chats.send(user, new SendChatRequest(
                 match.tournamentId(), id, request.channel(), request.toUserId(), request.content()));
+    }
+
+    /** 容量编排小局：双方各自上报本局终局战绩。 */
+    @PostMapping("/{id}/drill/report")
+    public MatchView reportDrill(
+            @PathVariable String id,
+            @RequestBody DrillReportRequest request) {
+        GameIdentity user = GameIdentity.of(UserContext.require());
+        drills.report(user, id, request);
+        return matches.detailForUser(user, id);
     }
 
     /** 页面淘汰赛高顺位选手改选本场首局剧本。 */

@@ -125,6 +125,10 @@ class TournamentCreationService {
         }
         String gameId = TournamentRules.resolveGameId(
                 request.gameId(), ArenaGames.GOMOKU, "GAME_DUEL_INVALID");
+        // 容量编排是 8 人同局的锦标赛专项，没有 1v1 约战形态。
+        if (ArenaGames.CAPACITY_DRILL.equals(gameId)) {
+            throw GameException.badRequest("GAME_DUEL_INVALID", "容量编排专项仅支持锦标赛，不支持约战");
+        }
         BlindLayout blindLayout = TournamentRules.resolveBlindLayout(
                 gameId, List.of(), request.blindLayout(), "GAME_DUEL_INVALID");
         String opponentNickname = request.opponentNickname() == null
