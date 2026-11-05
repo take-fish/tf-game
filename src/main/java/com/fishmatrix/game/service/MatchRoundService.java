@@ -146,15 +146,18 @@ class MatchRoundService {
             return match.firstGameId();
         }
         TournamentRecord tournament = assembler.tournamentOf(match);
-        String configured = tournament == null ? TournamentService.GAME_ID : tournament.gameId();
-        return ArenaGames.isRandom(configured) ? ArenaGames.randomGame() : configured;
+        return tournament == null
+                ? TournamentService.GAME_ID : TournamentRules.resolveGame(tournament);
     }
 
-    /** 后续小局：系统随机赛事每局重新抽签，固定剧本赛事继续使用同一剧本。 */
+    /**
+     * 后续小局：系统随机赛事每局重新抽签，但只能落在赛事启用的 game_pool 内；
+     * 固定剧本赛事继续使用同一剧本。
+     */
     private String nextGame(MatchRecord match) {
         TournamentRecord tournament = assembler.tournamentOf(match);
-        String configured = tournament == null ? TournamentService.GAME_ID : tournament.gameId();
-        return ArenaGames.isRandom(configured) ? ArenaGames.randomGame() : configured;
+        return tournament == null
+                ? TournamentService.GAME_ID : TournamentRules.resolveGame(tournament);
     }
 
     private void markMissingPlayers(MatchRecord match) {

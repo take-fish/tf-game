@@ -67,6 +67,12 @@ public interface MatchMapper extends BaseMapper<GameMatchEntity> {
     /** 正在对局的小局，用于每步超时判定。 */
     List<GameRoundEntity> selectRunningRounds();
 
+    /**
+     * 已到截止时间的容量编排小局。这类小局没有 turn_user_id，
+     * 不会出现在 {@link #selectRunningRounds()} 里，必须单独巡检。
+     */
+    List<GameRoundEntity> selectExpiredDrillRounds(@Param("now") LocalDateTime now);
+
     int updateStatus(@Param("matchId") String matchId, @Param("status") String status);
 
     int updateFirstGame(@Param("matchId") String matchId, @Param("gameId") String gameId);
