@@ -48,6 +48,12 @@ public class DrillController {
         return rooms.state(identity(), roomId);
     }
 
+    /** 锦标赛的排位赛房间：只有参赛选手可以进入。 */
+    @GetMapping("/tournament/{tournamentId}")
+    public Map<String, Object> tournamentRoom(@PathVariable String tournamentId) {
+        return rooms.tournamentRoom(tournamentId, identity().userId());
+    }
+
     @PostMapping("/rooms/{roomId}/join")
     public Map<String, Object> join(@PathVariable String roomId) {
         return rooms.join(identity(), roomId);

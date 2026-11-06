@@ -20,6 +20,8 @@ public final class BracketPlanner {
     public static final String STAGE_LEAGUE = "LEAGUE";
     public static final String STAGE_LADDER = "LADDER";
     public static final String STAGE_PAGE_PLAYOFF = "PAGE_PLAYOFF";
+    /** 良跑跑方案赛：没有常规对阵表，全部对局在演练房间内推进。 */
+    public static final String STAGE_DRILL = "DRILL";
 
     public static final String STATUS_READY = "READY";
     public static final String STATUS_PENDING = "PENDING";

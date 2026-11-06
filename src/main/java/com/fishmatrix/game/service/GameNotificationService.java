@@ -47,6 +47,25 @@ public class GameNotificationService {
         saveAndBroadcast(notification);
     }
 
+    /**
+     * 良跑跑方案赛的决赛：对局在演练房间内进行，没有独立的 MatchRecord。
+     * matchId 留空，前端按赛事查排位赛房间进入。
+     */
+    public void publishFinalStart(TournamentRecord tournament, String playerA, String playerB) {
+        if (tournament == null || playerA == null || playerB == null) {
+            return;
+        }
+        if (notifications.exists(TYPE_FINAL_START, tournament.id(), null)) {
+            return;
+        }
+        String name = tournamentName(tournament);
+        NotificationView notification = build(
+                TYPE_FINAL_START, tournament.id(), null,
+                "The final begins - " + name + "！",
+                name + " 决赛开始：" + playerA + " vs " + playerB + "，点击进入房间");
+        saveAndBroadcast(notification);
+    }
+
     public void publishChampion(TournamentRecord tournament) {
         if (tournament.championUserId() == null) {
             return;
