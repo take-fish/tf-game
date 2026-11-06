@@ -2,6 +2,7 @@ package com.fishmatrix.game.drill;
 
 import com.fishmatrix.game.model.GameException;
 import com.fishmatrix.game.model.GameIdentity;
+import com.fishmatrix.game.model.TournamentPlayerRecord;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -12,6 +13,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,6 +32,7 @@ import org.springframework.stereotype.Service;
  * <p>棋盘与战斗由各端用同一 seed 的本地引擎推演（引擎是确定性 + mulberry32），
  * 服务端只做同局权威部分：下发 seed、同步轮次、仲裁选秀候选、收战绩并发奖。</p>
  */
+@Slf4j
 @Service
 public class DrillRoomService {
 
@@ -53,6 +59,20 @@ public class DrillRoomService {
     private static final long IDLE_TTL_MILLIS = 30 * 60 * 1000L;
 
     private final Map<String, Room> rooms = new ConcurrentHashMap<>();
+    /** 赛事 → 排位赛房间；房间本身也在进程内，重启后随房间一起失效。 */
+    private final Map<String, String> tournamentRooms = new ConcurrentHashMap<>();
+    private final ApplicationEventPublisher publisher;
+
+    /** 单元测试与本地脚本用：不接事件总线。 */
+    public DrillRoomService() {
+        this(event -> {
+        });
+    }
+
+    @Autowired
+    public DrillRoomService(ApplicationEventPublisher publisher) {
+        this.publisher = publisher;
+    }
 
     public static final class Player {
         public final String userId;
@@ -81,6 +101,8 @@ public class DrillRoomService {
         public final String id;
         public final String source;
         public final String mode;
+        /** 由锦标赛创建时非空；普通演练房间为空。 */
+        public String tournamentId;
         public final int totalRounds;
         public final long seed;
         public final long createdAt = System.currentTimeMillis();
@@ -136,6 +158,65 @@ public class DrillRoomService {
         return view(room);
     }
 
+    /**
+     * 为良跑跑锦标赛创建排位赛房间：参赛真人直接入座，机器人教练由各端本地补满 8 席。
+     * 同一赛事只创建一个房间，重复调用返回现有房间。
+     */
+    public synchronized Map<String, Object> createForTournament(
+            String tournamentId, List<TournamentPlayerRecord> players) {
+        if (tournamentId == null || tournamentId.isBlank()) {
+            throw GameException.badRequest("DRILL_TOURNAMENT_ID_REQUIRED", "缺少赛事 ID");
+        }
+        String existingRoomId = tournamentRooms.get(tournamentId);
+        Room existing = existingRoomId == null ? null : rooms.get(existingRoomId);
+        if (existing != null) {
+            return view(existing);
+        }
+        if (players == null || players.size() < 2) {
+            throw GameException.badRequest(
+                    "DRILL_TOURNAMENT_NEEDS_TWO", "良跑跑锦标赛至少需要 2 名真人选手");
+        }
+        if (players.size() > MAX_PLAYERS) {
+            throw GameException.badRequest(
+                    "DRILL_TOURNAMENT_FULL", "良跑跑锦标赛最多 " + MAX_PLAYERS + " 名真人选手");
+        }
+        Room room = new Room(UUID.randomUUID().toString().substring(0, 8),
+                SOURCE_TOURNAMENT, MODE_TOURNAMENT, TOURNAMENT_ROUNDS,
+                ThreadLocalRandom.current().nextLong());
+        room.tournamentId = tournamentId;
+        for (TournamentPlayerRecord player : players) {
+            room.players.put(player.userId(), new Player(
+                    player.userId(),
+                    player.nickname() == null || player.nickname().isBlank()
+                            ? player.userId() : player.nickname(),
+                    room.players.size()));
+        }
+        rooms.put(room.id, room);
+        tournamentRooms.put(tournamentId, room.id);
+        log.info("锦标赛 {} 排位赛房间 {} 已创建，{} 名真人", tournamentId, room.id, players.size());
+        return view(room);
+    }
+
+    /** 按赛事查询排位赛房间；只有参赛真人可以进入。 */
+    public Map<String, Object> tournamentRoom(String tournamentId, String userId) {
+        String roomId = tournamentId == null ? null : tournamentRooms.get(tournamentId);
+        Room room = roomId == null ? null : rooms.get(roomId);
+        if (room == null) {
+            throw GameException.notFound("排位赛房间不存在或已过期");
+        }
+        if (userId != null && !userId.isBlank() && !room.players.containsKey(userId)) {
+            throw new GameException(HttpStatus.FORBIDDEN,
+                    "DRILL_TOURNAMENT_NOT_MEMBER", "只有参赛选手可以进入排位赛");
+        }
+        return view(room);
+    }
+
+    /** 房间对应的赛事 ID；普通演练房间返回 null。 */
+    public String tournamentIdOf(String roomId) {
+        Room room = roomId == null ? null : rooms.get(roomId);
+        return room == null ? null : room.tournamentId;
+    }
+
     public Map<String, Object> join(GameIdentity identity, String roomId) {
         Room room = require(roomId);
         if (STATUS_FINISHED.equals(room.status)) {
@@ -145,6 +226,11 @@ public class DrillRoomService {
         if (existing != null) {
             room.updatedAt = System.currentTimeMillis();
             return view(room);
+        }
+        // 锦标赛房间的座位在开赛时已按参赛名单锁定，不允许临时加入。
+        if (room.tournamentId != null) {
+            throw new GameException(HttpStatus.FORBIDDEN,
+                    "DRILL_TOURNAMENT_NOT_MEMBER", "只有参赛选手可以进入排位赛");
         }
         if (room.players.size() >= MAX_PLAYERS) {
             throw GameException.badRequest("DRILL_ROOM_FULL", "房间已满（最多 8 人）");
@@ -348,6 +434,8 @@ public class DrillRoomService {
     public void sweepIdle() {
         long now = System.currentTimeMillis();
         rooms.entrySet().removeIf(entry -> now - entry.getValue().updatedAt > IDLE_TTL_MILLIS);
+        // 房间被回收后，赛事到房间的映射也要清掉，避免一直指向已失效的房间。
+        tournamentRooms.entrySet().removeIf(entry -> !rooms.containsKey(entry.getValue()));
     }
 
     private void advanceIfAllReported(Room room) {
@@ -426,6 +514,15 @@ public class DrillRoomService {
             room.rewards.put(member.userId, rewardOf(rank));
             rank += 1;
         }
+        if (room.tournamentId != null) {
+            try {
+                publisher.publishEvent(
+                        new DrillTournamentEvents.PlacementFinished(room.tournamentId, room.id));
+            } catch (Exception exception) {
+                log.warn("排位赛结束事件处理失败 tournament={} room={}",
+                        room.tournamentId, room.id, exception);
+            }
+        }
     }
 
     /** 排位奖励：1 名 4 件/30 配额，2 名 3/25，3–4 名 2/20，其余 1/15。 */
@@ -487,6 +584,7 @@ public class DrillRoomService {
         view.put("id", room.id);
         view.put("source", room.source);
         view.put("mode", room.mode);
+        view.put("tournamentId", room.tournamentId);
         view.put("status", room.status);
         view.put("phase", room.phase);
         view.put("seed", room.seed);

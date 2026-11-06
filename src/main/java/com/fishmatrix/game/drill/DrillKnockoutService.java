@@ -10,7 +10,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,8 +22,8 @@ import org.springframework.stereotype.Service;
  * 双方各报一次终局战绩，服务端按「战绩分 → SLI → 存活数」判定该局胜负，
  * 先到 2/3 局者晋级。淘汰赛状态先放内存，和演练房间同生命周期。</p>
  */
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class DrillKnockoutService {
 
     public static final int PREP_SECONDS = 35;
@@ -30,8 +32,21 @@ public class DrillKnockoutService {
     public static final int KNOCKOUT_ROUNDS = 1;
 
     private final DrillRoomService rooms;
+    private final ApplicationEventPublisher publisher;
     private final Map<String, Bracket> brackets = new ConcurrentHashMap<>();
     private final Map<String, String> byRoom = new ConcurrentHashMap<>();
+
+    /** 单元测试与本地脚本用：不接事件总线。 */
+    public DrillKnockoutService(DrillRoomService rooms) {
+        this(rooms, event -> {
+        });
+    }
+
+    @Autowired
+    public DrillKnockoutService(DrillRoomService rooms, ApplicationEventPublisher publisher) {
+        this.rooms = rooms;
+        this.publisher = publisher;
+    }
 
     public record GameReport(int game, int wins, int losses, int draws, int sli, int survivors) {
     }
@@ -72,14 +87,16 @@ public class DrillKnockoutService {
     static final class Bracket {
         final String id;
         final String roomId;
+        final String tournamentId;
         final long createdAt = System.currentTimeMillis();
         final List<List<Match>> rounds = new ArrayList<>();
         String status = "RUNNING";
         String champion;
 
-        Bracket(String id, String roomId) {
+        Bracket(String id, String roomId, String tournamentId) {
             this.id = id;
             this.roomId = roomId;
+            this.tournamentId = tournamentId;
             for (int index = 0; index < 3; index += 1) {
                 rounds.add(new ArrayList<>());
             }
@@ -90,6 +107,14 @@ public class DrillKnockoutService {
         if (!rooms.isMember(roomId, identity.userId())) {
             throw GameException.badRequest("DRILL_ROOM_NOT_MEMBER", "不在该房间中");
         }
+        return startInternal(roomId);
+    }
+
+    /**
+     * 不需要身份校验的开赛入口：排位赛结束时由赛事服务自动调用。
+     * 幂等——同一房间只会生成一届淘汰赛。
+     */
+    public synchronized Map<String, Object> startInternal(String roomId) {
         String existing = byRoom.get(roomId);
         if (existing != null) {
             return view(brackets.get(existing));
@@ -107,7 +132,8 @@ public class DrillKnockoutService {
         for (int index = 1; index <= botCount; index += 1) {
             seeds.add(new Seed("bot-" + index, "机器人教练 " + index));
         }
-        Bracket bracket = new Bracket(UUID.randomUUID().toString().substring(0, 8), roomId);
+        Bracket bracket = new Bracket(
+                UUID.randomUUID().toString().substring(0, 8), roomId, rooms.tournamentIdOf(roomId));
         int[][] pairs = {{0, 7}, {3, 4}, {2, 5}, {1, 6}};
         List<Match> quarter = bracket.rounds.get(0);
         for (int slot = 0; slot < pairs.length; slot += 1) {
@@ -248,9 +274,34 @@ public class DrillKnockoutService {
         ensureRound(bracket, 1, 2, 5);
         ensureRound(bracket, 2, 1, 5);
         List<Match> finalRound = bracket.rounds.get(2);
-        if (!finalRound.isEmpty() && finalRound.get(0).winner != null) {
+        if (!finalRound.isEmpty() && finalRound.get(0).winner != null
+                && !"FINISHED".equals(bracket.status)) {
+            Match match = finalRound.get(0);
             bracket.status = "FINISHED";
-            bracket.champion = finalRound.get(0).winner;
+            bracket.champion = match.winner;
+            publishBracketFinished(bracket, match);
+        }
+    }
+
+    /** 冠军产生后回写赛事记录；演练房自然结束时 tournamentId 为 null，不处理。 */
+    private void publishBracketFinished(Bracket bracket, Match match) {
+        if (bracket.tournamentId == null) {
+            return;
+        }
+        boolean firstWins = match.winner.equals(match.playerA);
+        String runnerUp = firstWins ? match.playerB : match.playerA;
+        String runnerUpName = firstWins ? match.nicknameB : match.nicknameA;
+        String championName = firstWins ? match.nicknameA : match.nicknameB;
+        publish(new DrillTournamentEvents.BracketFinished(
+                bracket.tournamentId, bracket.roomId, bracket.id,
+                match.winner, championName, runnerUp, runnerUpName));
+    }
+
+    private void publish(Object event) {
+        try {
+            publisher.publishEvent(event);
+        } catch (Exception exception) {
+            log.warn("淘汰赛事件处理失败 event={}", event, exception);
         }
     }
 
@@ -278,6 +329,12 @@ public class DrillKnockoutService {
             next.nicknameB = secondAdvances ? second.nicknameA : second.nicknameB;
             current.add(next);
             prepareMatch(bracket, next);
+            if (round == 2 && bracket.tournamentId != null) {
+                // 决赛对阵已确定：和现有赛事一样写全站播报，但此时还在排位赛房间里。
+                publish(new DrillTournamentEvents.FinalStart(
+                        bracket.tournamentId, bracket.roomId, next.id,
+                        next.nicknameA, next.nicknameB));
+            }
         }
     }
 
@@ -331,6 +388,7 @@ public class DrillKnockoutService {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", bracket.id);
         view.put("roomId", bracket.roomId);
+        view.put("tournamentId", bracket.tournamentId);
         view.put("status", bracket.status);
         view.put("champion", bracket.champion);
         view.put("serverTime", System.currentTimeMillis());

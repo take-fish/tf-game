@@ -1,9 +1,13 @@
 package com.fishmatrix.game.service;
 
+import com.fishmatrix.game.arena.ArenaGames;
 import com.fishmatrix.game.config.GameProperties;
 import com.fishmatrix.game.converter.MatchConverters;
 import com.fishmatrix.game.converter.SqlTime;
 import com.fishmatrix.game.converter.TournamentConverters;
+import com.fishmatrix.game.drill.DrillKnockoutService;
+import com.fishmatrix.game.drill.DrillRoomService;
+import com.fishmatrix.game.drill.DrillTournamentEvents;
 import com.fishmatrix.game.mapper.MatchMapper;
 import com.fishmatrix.game.mapper.PlayerStatMapper;
 import com.fishmatrix.game.mapper.TournamentMapper;
@@ -22,6 +26,8 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +45,16 @@ class TournamentBracketService {
     private final GameNotificationService notifications;
     private final GameProperties properties;
     private final TournamentBroadcaster broadcaster;
+
+    /** 良跑跑方案赛的演练房间；旧测试手工构造本服务时为 null，走原有编排。 */
+    private DrillRoomService drillRooms;
+    private DrillKnockoutService drillKnockout;
+
+    @Autowired(required = false)
+    void setDrillCollaborators(DrillRoomService drillRooms, DrillKnockoutService drillKnockout) {
+        this.drillRooms = drillRooms;
+        this.drillKnockout = drillKnockout;
+    }
 
     /** 所有邀请已响应后开赛；不足 2 人取消。 */
     @Transactional
@@ -68,6 +84,13 @@ class TournamentBracketService {
         accepted = acceptedPlayers(tournament.id());
         int count = accepted.size();
         long now = System.currentTimeMillis();
+
+        // 良跑跑锦标赛走方案赛制：15 轮排位 → 八强 BO3 → 四强/决赛 BO5，
+        // 全部对局在演练房间里进行，不生成常规对阵表。
+        if (isDrillChampionship(tournament) && drillRooms != null) {
+            startDrillTournament(tournament, accepted, now);
+            return;
+        }
 
         List<MatchRecord> planned;
         String bracketType;
@@ -102,6 +125,66 @@ class TournamentBracketService {
         log.info("{} {} 开赛：{} 人，{}，{} 轮",
                 TournamentService.KIND_DUEL.equals(started.kind()) ? "约战" : "赛事",
                 started.id(), count, bracketType, totalRounds);
+    }
+
+    private static boolean isRealPlayer(String userId) {
+        return userId != null && !userId.startsWith("bot-");
+    }
+
+    private static boolean isDrillChampionship(TournamentRecord tournament) {
+        return ArenaGames.CAPACITY_DRILL.equals(tournament.gameId())
+                && TournamentService.KIND_TOURNAMENT.equals(tournament.kind());
+    }
+
+    /**
+     * 开赛即创建排位赛房间，并把参赛真人预置入座。
+     * 房间结束第 15 轮后通过 PlacementFinished 事件自动接上淘汰赛。
+     */
+    @Transactional
+    void startDrillTournament(TournamentRecord tournament,
+                              List<TournamentPlayerRecord> accepted, long now) {
+        if (tournaments.start(tournament.id(), BracketPlanner.STAGE_DRILL,
+                DrillRoomService.TOURNAMENT_ROUNDS, SqlTime.toDateTime(now)) == 0) {
+            return;
+        }
+        Map<String, Object> room = drillRooms.createForTournament(tournament.id(), accepted);
+        TournamentRecord started = findTournament(tournament.id()).orElse(tournament);
+        broadcaster.broadcastTournament(started);
+        log.info("良跑跑赛事 {} 开赛：{} 名真人，排位赛房间 {}",
+                started.id(), accepted.size(), room.get("id"));
+    }
+
+    /** 排位赛 15 轮结束：自动开启八强淘汰赛，房间 UI 会直接切到对阵板。 */
+    @EventListener
+    void onPlacementFinished(DrillTournamentEvents.PlacementFinished event) {
+        if (drillKnockout == null) {
+            return;
+        }
+        try {
+            drillKnockout.startInternal(event.roomId());
+            findTournament(event.tournamentId()).ifPresent(broadcaster::broadcastTournament);
+        } catch (Exception exception) {
+            log.warn("赛事 {} 排位赛结束后开启淘汰赛失败", event.tournamentId(), exception);
+        }
+    }
+
+    /** 淘汰赛决赛对阵确定：发全站决赛播报，点击进入排位赛房间。 */
+    @EventListener
+    void onDrillFinalStart(DrillTournamentEvents.FinalStart event) {
+        findTournament(event.tournamentId()).ifPresent(tournament ->
+                notifications.publishFinalStart(tournament, event.playerA(), event.playerB()));
+    }
+
+    /** 淘汰赛结束：回写冠亚军并发出冠军通知。 */
+    @EventListener
+    @Transactional
+    void onDrillBracketFinished(DrillTournamentEvents.BracketFinished event) {
+        TournamentRecord tournament = findTournament(event.tournamentId()).orElse(null);
+        if (tournament == null || !"RUNNING".equals(tournament.status())) {
+            return;
+        }
+        finishTournamentWith(tournament, event.championId(), event.championNickname(),
+                event.runnerUpId(), event.runnerUpNickname());
     }
 
     @Transactional
@@ -161,6 +244,10 @@ class TournamentBracketService {
         for (TournamentRecord tournament : TournamentConverters.records(
                 tournaments.selectRunning())) {
             try {
+                // 良跑跑方案赛的推进由演练房间事件驱动，这里没有常规对局可激活。
+                if (BracketPlanner.STAGE_DRILL.equals(tournament.bracketType())) {
+                    continue;
+                }
                 if (BracketPlanner.STAGE_LEAGUE.equals(tournament.bracketType())) {
                     advanceLeague(tournament);
                 } else {
@@ -303,14 +390,22 @@ class TournamentBracketService {
                 ? finalMatch.player2UserId() : finalMatch.player1UserId();
         String runnerUpNickname = championIsPlayer1
                 ? finalMatch.player2Nickname() : finalMatch.player1Nickname();
+        finishTournamentWith(tournament, championId, championNickname,
+                runnerUpId, runnerUpNickname);
+    }
+
+    /** 结算赛事；机器人教练不写入玩家称号与积分。 */
+    private void finishTournamentWith(TournamentRecord tournament,
+                                      String championId, String championNickname,
+                                      String runnerUpId, String runnerUpNickname) {
         long now = System.currentTimeMillis();
         tournaments.finish(tournament.id(), championId, championNickname,
                 runnerUpId, runnerUpNickname, SqlTime.toDateTime(now));
         if (TournamentService.KIND_TOURNAMENT.equals(tournament.kind())) {
-            if (championId != null) {
+            if (isRealPlayer(championId)) {
                 stats.addTitle(championId, championNickname, 1, 0, PlayerStatRules.titlePoints(true));
             }
-            if (runnerUpId != null) {
+            if (isRealPlayer(runnerUpId)) {
                 stats.addTitle(runnerUpId, runnerUpNickname, 0, 1, PlayerStatRules.titlePoints(false));
             }
         }
