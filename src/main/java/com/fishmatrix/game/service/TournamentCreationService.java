@@ -63,9 +63,12 @@ class TournamentCreationService {
             throw GameException.badRequest("GAME_TOURNAMENT_INVALID",
                     "至少需要 " + properties.minPlayers() + " 名选手");
         }
-        if (refs.size() > properties.maxPlayers()) {
+        // 良跑跑方案赛是 8 人同局：真人最多 8 席，不足的名额由机器人教练补满。
+        int limit = ArenaGames.CAPACITY_DRILL.equals(gameId)
+                ? Math.min(8, properties.maxPlayers()) : properties.maxPlayers();
+        if (refs.size() > limit) {
             throw GameException.badRequest("GAME_TOURNAMENT_INVALID",
-                    "最多支持 " + properties.maxPlayers() + " 名选手");
+                    "最多支持 " + limit + " 名选手");
         }
 
         long now = System.currentTimeMillis();
